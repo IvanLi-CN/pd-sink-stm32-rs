@@ -3,7 +3,6 @@
 runner = "probe-rs run --chip STM32G031G8Ux" # to list chips, run `probe-rs chip list.`
 
 rustflags = [
-  "-C", "linker=flip-link",
   "-C", "link-arg=-Tlink.x",
   "-C", "link-arg=-Tdefmt.x",
   # This is needed if your flash or ram addresses are not aligned to 0x10000 in memory.x
@@ -22,3 +21,6 @@ rb = "run --bin"
 rrb = "run --release --bin"
 rr = "run --release"
 br = "build --release"
+
+[env]
+DEFMT_LOG = "trace"
