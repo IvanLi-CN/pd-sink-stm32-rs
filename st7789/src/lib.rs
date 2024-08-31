@@ -37,24 +37,21 @@ pub enum Instruction {
     PTLAR = 0x30,
     COLMOD = 0x3A,
     MADCTL = 0x36,
-    FRMCTR1 = 0xB1,
-    FRMCTR2 = 0xB2,
-    FRMCTR3 = 0xB3,
-    INVCTR = 0xB4,
-    DISSET5 = 0xB6,
-    PWCTR1 = 0xC0,
+    RGBCTRL = 0xB1,
+    PORCTRL = 0xB2,
+    FRCTRL1 = 0xB3,
+    GCTRL = 0xB7,
+    VCOMS = 0xBB,
+    LCMCTRL = 0xC0,
     PWCTR2 = 0xC1,
-    PWCTR3 = 0xC2,
-    PWCTR4 = 0xC3,
-    PWCTR5 = 0xC4,
-    VMCTR1 = 0xC5,
-    RDID1 = 0xDA,
-    RDID2 = 0xDB,
-    RDID3 = 0xDC,
-    RDID4 = 0xDD,
-    PWCTR6 = 0xFC,
-    GMCTRP1 = 0xE0,
-    GMCTRN1 = 0xE1,
+    VDVVRHEN = 0xC2,
+    VRHS = 0xC3,
+    VDVS = 0xC4,
+    VCMOFSET = 0xC5,
+    FRCTRL2 = 0xC6,
+    PWCTRL1 = 0xD0,
+    PVGAMCTRL = 0xE0,
+    NVGAMCTRL = 0xE1,
 }
 
 #[derive(Clone, Copy)]
@@ -74,6 +71,20 @@ pub struct Config {
     pub width: u16,
     pub dx: u16,
     pub dy: u16,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            rgb: true,
+            inverted: true,
+            orientation: Orientation::Landscape,
+            height: 172,
+            width: 320,
+            dx: 0,
+            dy: 34,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -137,20 +148,33 @@ where
         let commands = [
             Command::new(Instruction::SWRESET, &[], 200),
             Command::new(Instruction::SLPOUT, &[], 200),
-            Command::new(Instruction::FRMCTR1, &[0x01, 0x2C, 0x2D], 0),
-            Command::new(Instruction::FRMCTR2, &[0x01, 0x2C, 0x2D], 0),
-            Command::new(
-                Instruction::FRMCTR3,
-                &[0x01, 0x2C, 0x2D, 0x01, 0x2C, 0x2D],
-                0,
-            ),
-            Command::new(Instruction::INVCTR, &[0x07], 0),
-            Command::new(Instruction::PWCTR1, &[0xA2, 0x02, 0x84], 0),
-            Command::new(Instruction::PWCTR2, &[0xC5], 0),
-            Command::new(Instruction::PWCTR3, &[0x0A, 0x00], 0),
-            Command::new(Instruction::PWCTR4, &[0x8A, 0x2A], 0),
-            Command::new(Instruction::PWCTR5, &[0x8A, 0xEE], 0),
-            Command::new(Instruction::VMCTR1, &[0x0E], 0),
+            Command::new(Instruction::PORCTRL, &[0x0C, 0x0C, 0x00, 0x33, 0x33], 0),
+            Command::new(Instruction::MADCTL, if rgb { &[0x00] } else { &[0x08] }, 0),
+            Command::new(Instruction::COLMOD, &[0x55], 0),
+            Command::new(Instruction::GCTRL, &[0x35], 0),
+            Command::new(Instruction::VCOMS, &[0x35], 0),
+            Command::new(Instruction::LCMCTRL, &[0x2C], 0),
+            Command::new(Instruction::VDVVRHEN, &[0x01], 0),
+            Command::new(Instruction::VRHS, &[0x13], 0),
+            Command::new(Instruction::VDVS, &[0x20], 0),
+            Command::new(Instruction::FRCTRL2, &[0x0F], 0),
+            Command::new(Instruction::PWCTRL1, &[0xA4, 0xA1], 0),
+            // Command::new(
+            //     Instruction::PVGAMCTRL,
+            //     &[
+            //         0xF0, 0x00, 0x04, 0x04, 0x04, 0x05, 0x29, 0x33, 0x3E, 0x38, 0x12, 0x12, 0x28,
+            //         0x30,
+            //     ],
+            //     0,
+            // ),
+            // Command::new(
+            //     Instruction::NVGAMCTRL,
+            //     &[
+            //         0xF0, 0x07, 0x0A, 0x0D, 0x0B, 0x07, 0x28, 0x33, 0x3E, 0x36, 0x14, 0x14, 0x29,
+            //         0x32,
+            //     ],
+            //     0,
+            // ),
             Command::new(
                 if inverted {
                     Instruction::INVON
@@ -160,8 +184,6 @@ where
                 &[],
                 0,
             ),
-            Command::new(Instruction::MADCTL, if rgb { &[0x00] } else { &[0x08] }, 0),
-            Command::new(Instruction::COLMOD, &[0x05], 0),
             Command::new(Instruction::DISPON, &[], 200),
         ];
 
@@ -290,8 +312,8 @@ where
         self.set_address_window(0, 0, self.config.width - 1, self.config.height - 1)
             .await?;
         let color = RawU16::from(color).into_inner();
-        let mut buf = [0_u8; 1440];
-        for i in 0..720 {
+        let mut buf = [0_u8; 2880];
+        for i in 0..1440 {
             let bytes = color.to_le_bytes(); // 将u16转换为小端字节序的[u8; 2]
             buf[i * 2 + 1] = bytes[0]; // 存储低字节
             buf[i * 2] = bytes[1]; // 存储高字节

@@ -43,7 +43,7 @@ async fn main(spawner: Spawner) {
     // dc.output_speed(OutputSpeed::High);
 
     let mut config = spi::Config::default();
-    config.frequency = Hertz(4_000_000);
+    config.frequency = Hertz(16_000_000);
     let mut spi = Spi::new_txonly(p.SPI1, p.PA5, p.PA7, p.DMA1_CH1, p.DMA1_CH2, config); // SCK is unused.
     let spi: Mutex<NoopRawMutex, _> = Mutex::new(spi);
 
@@ -55,19 +55,9 @@ async fn main(spawner: Spawner) {
 
     let colors = [Rgb565::RED, Rgb565::GREEN, Rgb565::BLUE];
 
-    let width = 160;
-    let height = 80;
 
     let mut display = st7789::Display::new(
-        st7789::Config {
-            rgb: false,
-            inverted: false,
-            orientation: st7789::Orientation::Landscape,
-            width,
-            height,
-            dx: 0,
-            dy: 24,
-        },
+        st7789::Config::default(),
         spi_dev,
         dc_pin,
         rst_pin,
