@@ -27,11 +27,13 @@ embedded-io-async = { version = "0.6.1" }
 
 embedded-graphics = "0.8.0"
 embedded-hal = "1.0.0"
+embedded-hal-async = "1.0.0"
 embedded-hal-bus = "0.2.0"
 st7789 = {path = "./st7789"}
 portable-atomic = { version = "1.5", features = ["unsafe-assume-single-core"] }
 heapless = {version = "0.8.0", features = ["serde"]}
 numtoa = "0.2.4"
+ryu = "1.0.18"
 
 # cargo build/run
 [profile.dev]

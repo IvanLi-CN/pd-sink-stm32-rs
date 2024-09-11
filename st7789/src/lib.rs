@@ -15,7 +15,7 @@ use embedded_hal_async::{delay::DelayNs, spi::SpiDevice};
 
 const BUF_SIZE: usize = 10 * 160 * 2;
 
-/// ST7735 instructions.
+/// ST7789 instructions.
 #[derive(Debug, Clone, Copy)]
 pub enum Instruction {
     NOP = 0x00,
@@ -95,7 +95,7 @@ pub enum Error<E = ()> {
     Pin(Infallible),
 }
 
-pub struct Display<SPI, DC, RST>
+pub struct ST7789<SPI, DC, RST>
 where
     SPI: SpiDevice,
     DC: OutputPin<Error = Infallible>,
@@ -107,7 +107,7 @@ where
     config: Config,
 }
 
-impl<SPI, DC, RST, E> Display<SPI, DC, RST>
+impl<SPI, DC, RST, E> ST7789<SPI, DC, RST>
 where
     SPI: SpiDevice<Error = E>,
     DC: OutputPin<Error = Infallible>,
@@ -335,7 +335,7 @@ where
         color: Rgb565,
         bg_color: Rgb565,
     ) -> Result<(), Error<E>> {
-        const BUF_SIZE: usize = 32*50*2;
+        const BUF_SIZE: usize = 24*48*2;
         const MAX_DATA_LEN: usize = BUF_SIZE / 2;
 
         let height = MAX_DATA_LEN as u16 / width
@@ -345,7 +345,7 @@ where
                 0
             };
 
-        self.set_address_window(x, y, x + 32 - 1, y + 50 - 1)
+        self.set_address_window(x, y, x + 24 - 1, y + 48 - 1)
             .await?;
         self.write_command(Instruction::RAMWR, &[]).await?;
         self.start_data()?;

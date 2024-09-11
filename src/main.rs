@@ -2,6 +2,7 @@
 #![no_main]
 
 use cortex_m::peripheral::SCB;
+use display::Display;
 use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
 use embassy_executor::Spawner;
 use embassy_stm32::{
@@ -11,26 +12,23 @@ use embassy_stm32::{
 };
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, mutex::Mutex};
 use embassy_time::{Duration, Instant, Timer};
-use embedded_graphics::{
-    mono_font::{ascii::FONT_10X20, MonoTextStyle},
-    pixelcolor::{Rgb565, Rgb888},
-    prelude::*,
-    primitives::{PrimitiveStyleBuilder, Rectangle, RoundedRectangle},
-    text::{Alignment, Baseline, Text, TextStyleBuilder},
+use embedded_graphics::{pixelcolor::Rgb565, prelude::RgbColor as _};
+use font::{
+    get_indexes_by_str, DOT_MATRIX_XL_NUM, DOT_MATRIX_XL_NUM_INDEX, GROTESK_24_48,
+    GROTESK_24_48_INDEX,
 };
-use font::{get_indexes_by_str, DOT_MATRIX_XL_NUM, DOT_MATRIX_XL_NUM_INDEX};
 use heapless::String;
-use numtoa::NumToA;
 
 use defmt_rtt as _;
 // global logger
 use panic_probe as _;
 
-use st7789::{self, Display, Frame};
+use st7789::{self, ST7789};
 
+mod display;
 mod font;
 
-type ST7789_Display<'a, 'b> = Display<
+type ST7789_Display<'a, 'b> = ST7789<
     SpiDevice<
         'a,
         NoopRawMutex,
@@ -67,11 +65,9 @@ async fn main(spawner: Spawner) {
     let dc_pin = Output::new(p.PA15, Level::Low, Speed::High);
     let rst_pin = Output::new(p.PA12, Level::Low, Speed::High);
 
-    let colors = [Rgb565::RED, Rgb565::GREEN, Rgb565::BLUE];
+    let st7789 = ST7789::new(st7789::Config::default(), spi_dev, dc_pin, rst_pin);
 
-    let mut display = st7789::Display::new(st7789::Config::default(), spi_dev, dc_pin, rst_pin);
-
-    let mut fps_counter = FpsCounter::new();
+    let mut display = Display::new(st7789);
 
     match display.init().await {
         Ok(_) => {
@@ -86,97 +82,44 @@ async fn main(spawner: Spawner) {
         }
     }
 
-    // Clear the display initially
-
-    let character_style = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
-    let text_style = TextStyleBuilder::new()
-        .baseline(Baseline::Bottom)
-        .alignment(Alignment::Right)
-        .build();
-    let bg_style = PrimitiveStyleBuilder::new()
-        // #277da1
-        .fill_color(Rgb565::from(Rgb888::new(0x27, 0x7d, 0xa1)))
-        .build();
-
-    let mut frame = Frame::new(40, 40, st7789::Orientation::Landscape, [0; 40 * 40 * 2]);
-    let mut str = String::<20>::new();
-    let mut str_buff = [0; 20];
-
-    let mut t = 0;
+    let mut num = 0f64;
 
     loop {
-        display.fill_color(Rgb565::BLUE).await.unwrap();
-        write_number(&mut display, t as u16).await;
-        // led.set_low();
-        // match display.fill_color(colors[0]).await {
-        //     Ok(_) => {}
-        //     Err(_) => {
-        //         defmt::error!("Fill color error");
-        //     }
-        // };
-        // fps_counter.update().await;
-        // // Timer::after(Duration::from_millis(1000)).await;
-        // // led.set_high();
-        // match display.fill_color(colors[1]).await {
-        //     Ok(_) => {}
-        //     Err(_) => {
-        //         defmt::error!("Fill color error");
-        //     }
-        // };
-        // fps_counter.update().await;
+        num += 1.123456789;
+        display.update_monitor_amps(num).await;
+        num += 1.123456789;
+        display.update_monitor_volts(num).await;
+        num += 1.123456789;
+        display.update_monitor_watts(num).await;
 
-        // RoundedRectangle::with_equal_corners(
-        //     Rectangle::new(Point::new(0, 0), Size::new(40, 40)),
-        //     Size::new(5, 5),
-        // )
-        // .into_styled(bg_style)
-        // .draw(&mut frame)
-        // .unwrap();
+        if num > 100.0 {
+            num -= 100.0;
+        }
 
-        // str.clear();
-        // str.push_str((fps_counter.fps as u16).numtoa_str(10, &mut str_buff))
-        //     .unwrap();
-
-        // t = (t + 1) % 3;
-        // match display.fill_color(colors[t]).await {
-        //     Ok(_) => {}
-        //     Err(_) => {
-        //         defmt::error!("Fill color error");
-        //     }
-        // };
-
-        // Text::with_text_style(&str, Point::new(30, 30), character_style, text_style)
-        //     .draw(&mut frame)
-        //     .unwrap();
-
-        // display.flush_frame(&frame).await.unwrap();
-        // write_number(&mut display, t as u16).await;
-        Timer::after(Duration::from_millis(1000)).await;
-        display.fill_color(Rgb565::RED).await.unwrap();
         Timer::after(Duration::from_millis(1000)).await;
     }
 }
 
 async fn write_number<'a, 'b>(display: &mut ST7789_Display<'a, 'b>, number: u16) {
     let mut indexes = [0; 10];
-    get_indexes_by_str(DOT_MATRIX_XL_NUM_INDEX, "12345", &mut indexes);
+    get_indexes_by_str(GROTESK_24_48_INDEX, "1234567890", &mut indexes);
 
-    let width = 32;
+    let width = 24;
     let height = 50;
 
     let color = Rgb565::WHITE;
     let bg_color = Rgb565::BLACK;
 
-    for i in 0..5 {
-        // for ele in DOT_MATRIX_XL_NUM[*idx] {
+    for i in 0..10 {
+        // for ele in GROTESK_24_48[*idx] {
         //     defmt::info!("indexes: {:?}", ele);
         // }
         display
             .write_area(
-                (10 + i * (10 + width)) as u16,
+                (10 + i * (4 + width)) as u16,
                 10,
                 width as u16,
-                DOT_MATRIX_XL_NUM[indexes[i]],
+                GROTESK_24_48[indexes[i]],
                 color,
                 bg_color,
             )
