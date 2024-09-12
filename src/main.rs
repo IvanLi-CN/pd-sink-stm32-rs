@@ -14,7 +14,7 @@ use embassy_sync::{blocking_mutex::raw::NoopRawMutex, mutex::Mutex};
 use embassy_time::{Duration, Instant, Timer};
 use embedded_graphics::{pixelcolor::Rgb565, prelude::RgbColor as _};
 use font::{
-    get_indexes_by_str, DOT_MATRIX_XL_NUM, DOT_MATRIX_XL_NUM_INDEX, GROTESK_24_48,
+    get_indexes_by_str, GROTESK_24_48,
     GROTESK_24_48_INDEX,
 };
 use heapless::String;
