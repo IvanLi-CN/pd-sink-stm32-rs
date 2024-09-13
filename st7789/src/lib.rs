@@ -4,7 +4,7 @@ use core::convert::Infallible;
 
 use embassy_time::Delay;
 use embedded_graphics_core::geometry::Dimensions;
-use embedded_graphics_core::prelude::RawData;
+use embedded_graphics_core::prelude::{RawData, RgbColor};
 use embedded_graphics_core::{
     pixelcolor::{raw::RawU16, Rgb565},
     prelude::{DrawTarget, OriginDimensions, Size},
@@ -15,7 +15,7 @@ use embedded_hal_async::{delay::DelayNs, spi::SpiDevice};
 
 const BUF_SIZE: usize = 10 * 160 * 2;
 
-/// ST7735 instructions.
+/// ST7789 instructions.
 #[derive(Debug, Clone, Copy)]
 pub enum Instruction {
     NOP = 0x00,
@@ -95,7 +95,7 @@ pub enum Error<E = ()> {
     Pin(Infallible),
 }
 
-pub struct Display<SPI, DC, RST>
+pub struct ST7789<SPI, DC, RST>
 where
     SPI: SpiDevice,
     DC: OutputPin<Error = Infallible>,
@@ -107,7 +107,7 @@ where
     config: Config,
 }
 
-impl<SPI, DC, RST, E> Display<SPI, DC, RST>
+impl<SPI, DC, RST, E> ST7789<SPI, DC, RST>
 where
     SPI: SpiDevice<Error = E>,
     DC: OutputPin<Error = Infallible>,
@@ -312,17 +312,65 @@ where
         self.set_address_window(0, 0, self.config.width - 1, self.config.height - 1)
             .await?;
         let color = RawU16::from(color).into_inner();
-        let mut buf = [0_u8; 2880];
-        for i in 0..1440 {
+        let mut buf = [0_u8; 1440];
+        for i in 0..720 {
             let bytes = color.to_le_bytes(); // 将u16转换为小端字节序的[u8; 2]
             buf[i * 2 + 1] = bytes[0]; // 存储低字节
             buf[i * 2] = bytes[1]; // 存储高字节
         }
         self.write_command(Instruction::RAMWR, &[]).await?;
         self.start_data()?;
-        for _ in 0..self.config.height / 4 {
+        for _ in 0..self.config.height / 2 {
             self.spi.write(&buf).await.map_err(Error::Comm)?;
         }
+        Ok(())
+    }
+
+    pub async fn write_area(
+        &mut self,
+        x: u16,
+        y: u16,
+        width: u16,
+        data: &[u8],
+        color: Rgb565,
+        bg_color: Rgb565,
+    ) -> Result<(), Error<E>> {
+        const BUF_SIZE: usize = 24*48*2;
+        const MAX_DATA_LEN: usize = BUF_SIZE / 2;
+
+        let height = MAX_DATA_LEN as u16 / width
+            + if MAX_DATA_LEN as u16 % width > 0 {
+                1
+            } else {
+                0
+            };
+
+        self.set_address_window(x, y, x + width - 1, y + height - 1)
+            .await?;
+        self.write_command(Instruction::RAMWR, &[]).await?;
+        self.start_data()?;
+        let color = RawU16::from(color).into_inner();
+        let bg_color = RawU16::from(bg_color).into_inner();
+        let front_bytes = color.to_le_bytes();
+        let back_bytes = bg_color.to_le_bytes();
+        let mut buff = [127u8; BUF_SIZE];
+        for (i, bits) in data.iter().enumerate() {
+            for j in 0..8 {
+                if *bits & (1 << (7 - j)) != 0 {
+                    buff[(i * 8 + j) * 2] = front_bytes[1];
+                    buff[(i * 8 + j) * 2 + 1] = front_bytes[0];
+                } else {
+                    buff[(i * 8 + j) * 2] = back_bytes[1];
+                    buff[(i * 8 + j) * 2 + 1] = back_bytes[0];
+                }
+            }
+        }
+
+        // for i in data.len()..(BUF_SIZE / 2) {
+        //     buff[i * 2] = back_bytes[1];
+        //     buff[i * 2 + 1] = back_bytes[0];
+        // }
+        self.spi.write(&buff[..data.len() * 8 * 2]).await.map_err(Error::Comm)?;
         Ok(())
     }
 }

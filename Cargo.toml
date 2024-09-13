@@ -19,20 +19,21 @@ critical-section = "1.1.3"
 
 embassy-stm32 = { version = "0.1.0", features = [ "defmt", "time-driver-any", "stm32g031g8", "memory-x", "unstable-pac", "exti"]  }
 embassy-sync = { version = "0.6.0", features = ["defmt"] }
-embassy-executor = { version = "0.6.0", features = ["arch-cortex-m", "executor-thread", "defmt", "integrated-timers"] }
+embassy-executor = { version = "0.6.0", features = ["arch-cortex-m", "executor-thread", "defmt", "integrated-timers", "task-arena-size-5120"] }
 embassy-time = { version = "0.3.2", features = ["defmt", "tick-hz-32_768"] }
 embassy-futures = { version = "0.1.0" }
 embassy-embedded-hal = "0.2.0"
 embedded-io-async = { version = "0.6.1" }
 
-display-interface = "0.5.0"
-display-interface-spi = "0.5.0"
 embedded-graphics = "0.8.0"
 embedded-hal = "1.0.0"
+embedded-hal-async = "1.0.0"
 embedded-hal-bus = "0.2.0"
 st7789 = {path = "./st7789"}
 portable-atomic = { version = "1.5", features = ["unsafe-assume-single-core"] }
-
+heapless = {version = "0.8.0", features = ["serde"]}
+numtoa = "0.2.4"
+ryu = "1.0.18"
 
 # cargo build/run
 [profile.dev]
