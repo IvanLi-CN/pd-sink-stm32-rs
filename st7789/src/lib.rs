@@ -345,7 +345,7 @@ where
                 0
             };
 
-        self.set_address_window(x, y, x + 24 - 1, y + 48 - 1)
+        self.set_address_window(x, y, x + width - 1, y + height - 1)
             .await?;
         self.write_command(Instruction::RAMWR, &[]).await?;
         self.start_data()?;
@@ -370,7 +370,7 @@ where
         //     buff[i * 2] = back_bytes[1];
         //     buff[i * 2 + 1] = back_bytes[0];
         // }
-        self.spi.write(&buff).await.map_err(Error::Comm)?;
+        self.spi.write(&buff[..data.len() * 8 * 2]).await.map_err(Error::Comm)?;
         Ok(())
     }
 }

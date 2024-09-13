@@ -85,24 +85,26 @@ async fn main(spawner: Spawner) {
     let mut num = 0f64;
 
     loop {
-        num += 1.123456789;
+        num += 1.00002;
         display.update_monitor_amps(num).await;
-        num += 1.123456789;
+        num += 1.00002;
         display.update_monitor_volts(num).await;
-        num += 1.123456789;
+        num += 1.00002;
         display.update_monitor_watts(num).await;
+        num += 1.00002;
+        display.update_target_volts(num).await;
 
-        if num > 100.0 {
-            num -= 100.0;
+        if num > 90.0 {
+            num -= 80.0;
         }
 
-        Timer::after(Duration::from_millis(1000)).await;
+        // Timer::after(Duration::from_millis(1000)).await;
     }
 }
 
 async fn write_number<'a, 'b>(display: &mut ST7789_Display<'a, 'b>, number: u16) {
     let mut indexes = [0; 10];
-    get_indexes_by_str(GROTESK_24_48_INDEX, "1234567890", &mut indexes);
+    get_indexes_by_str(GROTESK_24_48_INDEX, "000020", &mut indexes);
 
     let width = 24;
     let height = 50;
