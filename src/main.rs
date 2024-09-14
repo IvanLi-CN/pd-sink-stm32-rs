@@ -3,23 +3,24 @@
 
 use cortex_m::peripheral::SCB;
 use display::Display;
-use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
+use embassy_embedded_hal::shared_bus::asynch::{i2c::I2cDevice, spi::SpiDevice};
 use embassy_executor::Spawner;
 use embassy_stm32::{
+    bind_interrupts,
     gpio::{Level, Output, Speed},
+    i2c::{self, I2c},
+    peripherals,
     spi::{self, Spi},
     time::Hertz,
 };
-use embassy_sync::{blocking_mutex::raw::NoopRawMutex, mutex::Mutex};
-use embassy_time::{Duration, Instant, Timer};
-use embedded_graphics::{pixelcolor::Rgb565, prelude::RgbColor as _};
-use font::{
-    get_indexes_by_str, GROTESK_24_48,
-    GROTESK_24_48_INDEX,
+use embassy_sync::{
+    blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex},
+    mutex::Mutex,
 };
-use heapless::String;
+use embassy_time::{Duration, Instant, Timer};
 
 use defmt_rtt as _;
+use ina226::{DEFAULT_ADDRESS, INA226};
 // global logger
 use panic_probe as _;
 
@@ -44,6 +45,10 @@ type ST7789_Display<'a, 'b> = ST7789<
     Output<'a, embassy_stm32::peripherals::PA12>,
 >;
 
+bind_interrupts!(struct Irqs {
+    I2C1 => i2c::EventInterruptHandler<peripherals::I2C1>, i2c::ErrorInterruptHandler<peripherals::I2C1>;
+});
+
 // This marks the entrypoint of our application.
 
 #[embassy_executor::main]
@@ -52,12 +57,10 @@ async fn main(spawner: Spawner) {
 
     defmt::println!("Hello, world!");
 
-    let mut led = Output::new(p.PB8, Level::High, Speed::Low);
-
     let mut config = spi::Config::default();
     config.frequency = Hertz(16_000_000);
     let spi = Spi::new_txonly(p.SPI1, p.PA5, p.PA7, p.DMA1_CH1, p.DMA1_CH2, config); // SCK is unused.
-    let mut spi: Mutex<NoopRawMutex, _> = Mutex::new(spi);
+    let spi: Mutex<NoopRawMutex, _> = Mutex::new(spi);
 
     let cs_pin = Output::new(p.PA4, Level::High, Speed::High);
     let spi_dev = SpiDevice::new(&spi, cs_pin);
@@ -82,85 +85,61 @@ async fn main(spawner: Spawner) {
         }
     }
 
-    let mut num = 0f64;
+    let i2c = I2c::new(
+        p.I2C1,
+        p.PB8,
+        p.PB7,
+        Irqs,
+        p.DMA1_CH3,
+        p.DMA1_CH4,
+        Hertz(100_000),
+        Default::default(),
+    );
+
+    let i2c: Mutex<CriticalSectionRawMutex, _> = Mutex::new(i2c);
+    let i2c_dev = I2cDevice::new(&i2c);
+
+    let mut ina226 = INA226::new(i2c_dev, DEFAULT_ADDRESS);
+    ina226
+        .set_configuration(&ina226::Config {
+            mode: ina226::MODE::ShuntBusVoltageContinuous,
+            avg: ina226::AVG::_4,
+            vbusct: ina226::VBUSCT::_588us,
+            vshct: ina226::VSHCT::_588us,
+        })
+        .await
+        .unwrap();
+
+    ina226.callibrate(0.01, 5.0).await.unwrap();
 
     loop {
-        num += 1.00002;
-        display.update_monitor_amps(num).await;
-        num += 1.00002;
-        display.update_monitor_volts(num).await;
-        num += 1.00002;
-        display.update_monitor_watts(num).await;
-        num += 1.00002;
-        display.update_target_volts(num).await;
-
-        if num > 90.0 {
-            num -= 80.0;
+        match ina226.bus_voltage_millivolts().await {
+            Ok(val) => {
+                display.update_monitor_volts(num / 1000.0).await;
+            }
+            Err(_) => {
+                display.update_monitor_volts(-99999.0).await;
+            }
         }
 
-        // Timer::after(Duration::from_millis(1000)).await;
-    }
-}
-
-async fn write_number<'a, 'b>(display: &mut ST7789_Display<'a, 'b>, number: u16) {
-    let mut indexes = [0; 10];
-    get_indexes_by_str(GROTESK_24_48_INDEX, "000020", &mut indexes);
-
-    let width = 24;
-    let height = 50;
-
-    let color = Rgb565::WHITE;
-    let bg_color = Rgb565::BLACK;
-
-    for i in 0..10 {
-        // for ele in GROTESK_24_48[*idx] {
-        //     defmt::info!("indexes: {:?}", ele);
-        // }
-        display
-            .write_area(
-                (10 + i * (4 + width)) as u16,
-                10,
-                width as u16,
-                GROTESK_24_48[indexes[i]],
-                color,
-                bg_color,
-            )
-            .await
-            .unwrap();
-    }
-}
-
-// same panicking *behavior* as `panic-probe` but doesn't print a panic message
-// this prevents the panic message being printed *twice* when `defmt::panic` is invoked
-#[defmt::panic_handler]
-fn panic() -> ! {
-    cortex_m::asm::udf()
-}
-
-struct FpsCounter {
-    frame_count: u32,
-    last_time: Instant,
-    fps: f32,
-}
-
-impl FpsCounter {
-    fn new() -> Self {
-        Self {
-            frame_count: 0,
-            last_time: Instant::now(),
-            fps: 0.0,
+        match ina226.current_amps().await {
+            Ok(val) => {
+                display.update_monitor_amps(val.unwrap_or(0.0)).await;
+            }
+            Err(_) => {
+                display.update_monitor_amps(-99999.0).await;
+            }
         }
-    }
 
-    async fn update(&mut self) {
-        self.frame_count += 1;
-        let now = Instant::now();
-        let elapsed = now - self.last_time;
-
-        if elapsed >= Duration::from_millis(1000) {
-            self.fps = self.frame_count as f32 / (elapsed.as_millis() as f32 / 1000.0);
-            self.frame_count = 0;
-            self.last_time = now;
+        match ina226.power_watts().await {
+            Ok(val) => {
+                display.update_monitor_watts(val.unwrap_or(0.0)).await;
+            }
+            Err(_) => {
+                display.update_monitor_watts(-99999.0).await;
+            }
         }
+
+        Timer::after(Duration::from_millis(1000)).await;
     }
 }
