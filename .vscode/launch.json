@@ -10,7 +10,7 @@
       "name": "probe-rs Test",
       "cwd": "${workspaceFolder}",
       "connectUnderReset": false,
-      "chip": "STM32G031G8Ux",
+      "chip": "STM32G071G8Ux",
       "flashingConfig": {
         "flashingEnabled": true,
         "haltAfterReset": true
