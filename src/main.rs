@@ -7,11 +7,11 @@ use embassy_embedded_hal::shared_bus::asynch::{i2c::I2cDevice, spi::SpiDevice};
 use embassy_executor::Spawner;
 use embassy_stm32::{
     bind_interrupts,
-    gpio::{Level, Output, Speed},
+    gpio::{Level, Output, OutputType, Speed},
     i2c::{self, I2c},
     peripherals,
     spi::{self, Spi},
-    time::Hertz,
+    time::{khz, Hertz}, timer::simple_pwm::{PwmPin, SimplePwm},
 };
 use embassy_sync::{
     blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex},
@@ -70,8 +70,13 @@ async fn main(spawner: Spawner) {
 
     let dc_pin = Output::new(p.PA15, Level::Low, Speed::High);
     let rst_pin = Output::new(p.PA12, Level::Low, Speed::High);
+    let blk_pin = PwmPin::new_ch3(p.PB6, OutputType::PushPull);
 
     let st7789 = ST7789::new(st7789::Config::default(), spi_dev, dc_pin, rst_pin);
+    let mut blk_tim = SimplePwm::new(p.TIM1, None, None, Some(blk_pin), None, khz(1), embassy_stm32::timer::CountingMode::EdgeAlignedUp);
+
+    blk_tim.enable(embassy_stm32::timer::Channel::Ch3);
+    blk_tim.set_duty(embassy_stm32::timer::Channel::Ch3, blk_tim.get_max_duty() / 2);
 
     let mut display = Display::new(st7789);
 
@@ -102,7 +107,6 @@ async fn main(spawner: Spawner) {
     let i2c: Mutex<CriticalSectionRawMutex, _> = Mutex::new(i2c);
 
     let i2c_dev = I2cDevice::new(&i2c);
-
     let mut ina226 = INA226::new(i2c_dev, DEFAULT_ADDRESS);
     ina226
         .set_configuration(&ina226::Config {
