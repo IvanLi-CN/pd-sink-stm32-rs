@@ -17,9 +17,10 @@ use embassy_sync::{
     blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex},
     mutex::Mutex,
 };
-use embassy_time::{Duration, Instant, Timer};
+use embassy_time::{Duration, Timer};
 
 use defmt_rtt as _;
+use husb238::Husb238;
 use ina226::{DEFAULT_ADDRESS, INA226};
 // global logger
 use panic_probe as _;
@@ -99,6 +100,7 @@ async fn main(spawner: Spawner) {
     );
 
     let i2c: Mutex<CriticalSectionRawMutex, _> = Mutex::new(i2c);
+
     let i2c_dev = I2cDevice::new(&i2c);
 
     let mut ina226 = INA226::new(i2c_dev, DEFAULT_ADDRESS);
@@ -106,21 +108,28 @@ async fn main(spawner: Spawner) {
         .set_configuration(&ina226::Config {
             mode: ina226::MODE::ShuntBusVoltageContinuous,
             avg: ina226::AVG::_4,
-            vbusct: ina226::VBUSCT::_588us,
-            vshct: ina226::VSHCT::_588us,
+            vbusct: ina226::VBUSCT::_4156us,
+            vshct: ina226::VSHCT::_4156us,
         })
         .await
         .unwrap();
 
     ina226.callibrate(0.01, 5.0).await.unwrap();
 
+    out_ctl_pin.set_high();
+
+    let i2c_dev = I2cDevice::new(&i2c);
+    let mut husb238 = Husb238::new(i2c_dev);
+
+    let mut count = 0u8;
+
     loop {
         match ina226.bus_voltage_millivolts().await {
             Ok(val) => {
-                display.update_monitor_volts(num / 1000.0).await;
+                display.update_monitor_volts(val / 1000.0).await;
             }
             Err(_) => {
-                display.update_monitor_volts(-99999.0).await;
+                display.update_monitor_volts(99999.99999).await;
             }
         }
 
@@ -129,7 +138,7 @@ async fn main(spawner: Spawner) {
                 display.update_monitor_amps(val.unwrap_or(0.0)).await;
             }
             Err(_) => {
-                display.update_monitor_amps(-99999.0).await;
+                display.update_monitor_amps(99999.99999).await;
             }
         }
 
@@ -138,10 +147,25 @@ async fn main(spawner: Spawner) {
                 display.update_monitor_watts(val.unwrap_or(0.0)).await;
             }
             Err(_) => {
-                display.update_monitor_watts(-99999.0).await;
+                display.update_monitor_watts(99999.99999).await;
             }
         }
 
-        Timer::after(Duration::from_millis(1000)).await;
+        count += 1;
+        if count < 10 {
+            continue;
+        }
+
+        count = 0;
+
+        match husb238.get_actual_voltage_and_current().await {
+            Ok((volts, amps)) => {
+                display.update_target_volts(volts.unwrap_or(0.0)).await;
+                display.update_limit_amps(amps).await;
+            }
+            Err(_) => {}
+        }
+
+        // Timer::after(Duration::from_millis(1000)).await;
     }
 }
