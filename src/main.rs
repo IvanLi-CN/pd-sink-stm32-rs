@@ -57,6 +57,8 @@ async fn main(spawner: Spawner) {
 
     defmt::println!("Hello, world!");
 
+    let mut out_ctl_pin = Output::new(p.PA8, Level::Low, Speed::Low);
+
     let mut config = spi::Config::default();
     config.frequency = Hertz(16_000_000);
     let spi = Spi::new_txonly(p.SPI1, p.PA5, p.PA7, p.DMA1_CH1, p.DMA1_CH2, config); // SCK is unused.
