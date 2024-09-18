@@ -1,23 +1,24 @@
 #![no_std]
 #![no_main]
 
-use cortex_m::peripheral::SCB;
 use display::Display;
 use embassy_embedded_hal::shared_bus::asynch::{i2c::I2cDevice, spi::SpiDevice};
 use embassy_executor::Spawner;
+use embassy_futures::select::{select, Either};
 use embassy_stm32::{
     bind_interrupts,
-    gpio::{Level, Output, OutputType, Speed},
+    exti::ExtiInput,
+    gpio::{Input, Level, Output, OutputType, Pull, Speed},
     i2c::{self, I2c},
-    peripherals,
+    peripherals::{self, PB0, PC14},
     spi::{self, Spi},
-    time::{khz, Hertz}, timer::simple_pwm::{PwmPin, SimplePwm},
+    time::{khz, Hertz},
+    timer::simple_pwm::{PwmPin, SimplePwm},
 };
 use embassy_sync::{
     blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex},
     mutex::Mutex,
 };
-use embassy_time::{Duration, Timer};
 
 use defmt_rtt as _;
 use husb238::Husb238;
@@ -65,33 +66,38 @@ async fn main(spawner: Spawner) {
     let spi = Spi::new_txonly(p.SPI1, p.PA5, p.PA7, p.DMA1_CH1, p.DMA1_CH2, config); // SCK is unused.
     let spi: Mutex<NoopRawMutex, _> = Mutex::new(spi);
 
+    // init display
+
     let cs_pin = Output::new(p.PA4, Level::High, Speed::High);
     let spi_dev = SpiDevice::new(&spi, cs_pin);
 
     let dc_pin = Output::new(p.PA15, Level::Low, Speed::High);
     let rst_pin = Output::new(p.PA12, Level::Low, Speed::High);
-    let blk_pin = PwmPin::new_ch3(p.PB6, OutputType::PushPull);
 
     let st7789 = ST7789::new(st7789::Config::default(), spi_dev, dc_pin, rst_pin);
-    let mut blk_tim = SimplePwm::new(p.TIM1, None, None, Some(blk_pin), None, khz(1), embassy_stm32::timer::CountingMode::EdgeAlignedUp);
-
-    blk_tim.enable(embassy_stm32::timer::Channel::Ch3);
-    blk_tim.set_duty(embassy_stm32::timer::Channel::Ch3, blk_tim.get_max_duty() / 2);
-
     let mut display = Display::new(st7789);
 
-    match display.init().await {
-        Ok(_) => {
-            defmt::info!("Display initialized.");
-        }
-        Err(_) => {
-            defmt::info!("Display initialization failed.");
+    display.init().await.unwrap();
 
-            Timer::after(Duration::from_millis(1000)).await;
+    // init backlight
 
-            SCB::sys_reset();
-        }
-    }
+    let blk_pin = PwmPin::new_ch3(p.PB6, OutputType::PushPull);
+
+    let mut blk_tim = SimplePwm::new(
+        p.TIM1,
+        None,
+        None,
+        Some(blk_pin),
+        None,
+        khz(1),
+        embassy_stm32::timer::CountingMode::EdgeAlignedUp,
+    );
+
+    blk_tim.enable(embassy_stm32::timer::Channel::Ch3);
+    blk_tim.set_duty(
+        embassy_stm32::timer::Channel::Ch3,
+        blk_tim.get_max_duty() / 2,
+    );
 
     let i2c = I2c::new(
         p.I2C1,
@@ -106,6 +112,8 @@ async fn main(spawner: Spawner) {
 
     let i2c: Mutex<CriticalSectionRawMutex, _> = Mutex::new(i2c);
 
+    // init ina226
+
     let i2c_dev = I2cDevice::new(&i2c);
     let mut ina226 = INA226::new(i2c_dev, DEFAULT_ADDRESS);
     ina226
@@ -119,6 +127,13 @@ async fn main(spawner: Spawner) {
         .unwrap();
 
     ina226.callibrate(0.01, 5.0).await.unwrap();
+
+    // init buttons
+
+    let button_a = ExtiInput::new(Input::new(p.PC14, Pull::Up), p.EXTI14);
+    let button_b = ExtiInput::new(Input::new(p.PB0, Pull::Up), p.EXTI0);
+
+    spawner.spawn(btns_exec(button_a, button_b)).ok();
 
     out_ctl_pin.set_high();
 
@@ -155,6 +170,11 @@ async fn main(spawner: Spawner) {
             }
         }
 
+        blk_tim.set_duty(
+            embassy_stm32::timer::Channel::Ch3,
+            blk_tim.get_max_duty() / 10 * (count as u16),
+        );
+
         count += 1;
         if count < 10 {
             continue;
@@ -171,5 +191,33 @@ async fn main(spawner: Spawner) {
         }
 
         // Timer::after(Duration::from_millis(1000)).await;
+    }
+}
+
+#[embassy_executor::task]
+async fn btns_exec(mut btn_a: ExtiInput<'static, PC14>, mut btn_b: ExtiInput<'static, PB0>) {
+    loop {
+        let btn_a_change = btn_a.wait_for_any_edge();
+
+        let btn_b_change = btn_b.wait_for_any_edge();
+
+        let futures = select(btn_a_change, btn_b_change);
+
+        match futures.await {
+            Either::First(_) => {
+                if btn_a.is_high() {
+                    defmt::println!("btn_a_up");
+                } else {
+                    defmt::println!("btn_a_down");
+                }
+            }
+            Either::Second(_) => {
+                if btn_b.is_high() {
+                    defmt::println!("btn_b_up");
+                } else {
+                    defmt::println!("btn_b_down");
+                }
+            }
+        };
     }
 }
