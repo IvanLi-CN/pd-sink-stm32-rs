@@ -8,44 +8,13 @@ use embedded_hal::digital::OutputPin;
 use embedded_hal_async::spi::SpiDevice;
 use st7789::ST7789;
 
-use crate::font::{
-    get_index_by_char, ARIAL_ROUND_16_24, ARIAL_ROUND_16_24_INDEX, GROTESK_24_48,
-    GROTESK_24_48_INDEX,
+use crate::{
+    font::{
+        get_index_by_char, ARIAL_ROUND_16_24, ARIAL_ROUND_16_24_INDEX, GROTESK_24_48,
+        GROTESK_24_48_INDEX,
+    },
+    types::{PowerInfo, StatusInfo},
 };
-
-#[derive(Debug, Clone, Copy, defmt::Format)]
-pub struct PowerInfo {
-    pub amps: f64,
-    pub volts: f64,
-    pub watts: f64,
-}
-
-impl Default for PowerInfo {
-    fn default() -> Self {
-        Self {
-            amps: 0.0,
-            volts: 0.0,
-            watts: 0.0,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, defmt::Format)]
-pub struct StatusInfo {
-    pub target_volts: f64,
-    pub limit_amps: f64,
-    pub output: bool,
-}
-
-impl Default for StatusInfo {
-    fn default() -> Self {
-        Self {
-            target_volts: 0.0,
-            limit_amps: 0.0,
-            output: false,
-        }
-    }
-}
 
 pub struct Display<SPI, DC, RST>
 where

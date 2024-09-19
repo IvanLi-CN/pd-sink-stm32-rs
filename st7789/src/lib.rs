@@ -4,7 +4,7 @@ use core::convert::Infallible;
 
 use embassy_time::Delay;
 use embedded_graphics_core::geometry::Dimensions;
-use embedded_graphics_core::prelude::{RawData, RgbColor};
+use embedded_graphics_core::prelude::RawData;
 use embedded_graphics_core::{
     pixelcolor::{raw::RawU16, Rgb565},
     prelude::{DrawTarget, OriginDimensions, Size},
