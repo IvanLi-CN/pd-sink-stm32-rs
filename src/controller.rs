@@ -3,7 +3,12 @@ use embassy_time::{Duration, Instant};
 
 use crate::{
     button::ButtonState,
-    shared::{BTN_A_STATE_CHANNEL, BTN_B_STATE_CHANNEL, MAX_SIMULTANEOUS_PRESS_DELAY},
+    shared::{
+        BACKLIGHT_MUTEX, BTN_A_STATE_CHANNEL, BTN_B_STATE_CHANNEL, DISPLAY_DIRECTION_MUTEX,
+        MAX_SIMULTANEOUS_PRESS_DELAY, OCP_MAX, OCP_MUTEX, PAGE_MUTEX, PDO_MUTEX,
+        UVP_MUTEX,
+    },
+    types::{Direction, Page, SettingItem, SETTING_ITEMS},
 };
 
 #[derive(PartialEq, Clone, Copy, Debug, defmt::Format)]
@@ -16,11 +21,6 @@ pub enum BtnsState {
     DownDbk,
     UpAndDown,
     UpAndDownLong,
-}
-
-pub enum Direction {
-    Normal,
-    Reversed,
 }
 
 pub struct Controller {
@@ -131,6 +131,203 @@ impl Controller {
 
     async fn handle_input(&mut self, btns: BtnsState) {
         defmt::info!("btns: {:?}", btns);
+
+        let mut page = PAGE_MUTEX.lock().await;
+
+        match *page {
+            Page::Monitor => match btns {
+                BtnsState::Up => {
+                    let mut backlight = BACKLIGHT_MUTEX.lock().await;
+
+                    if *backlight > 10 {
+                        *backlight = 10;
+                    } else {
+                        *backlight += 1;
+                    }
+                }
+                BtnsState::Down => {
+                    let mut backlight = BACKLIGHT_MUTEX.lock().await;
+
+                    if *backlight < 1 {
+                        *backlight = 0;
+                    } else {
+                        *backlight -= 1;
+                    }
+                }
+                BtnsState::UpLong => {}
+                BtnsState::DownLong => {
+                    let mut backlight = BACKLIGHT_MUTEX.lock().await;
+
+                    *backlight = 0;
+                }
+                BtnsState::UpDbk | BtnsState::DownDbk => {
+                    let mut direction = DISPLAY_DIRECTION_MUTEX.lock().await;
+
+                    *direction = match *direction {
+                        Direction::Normal => Direction::Reversed,
+                        Direction::Reversed => Direction::Normal,
+                    };
+                }
+                BtnsState::UpAndDown => {
+                    *page = Page::OCP;
+                }
+                BtnsState::UpAndDownLong => {
+                    *page = Page::Setting(SettingItem::Voltage);
+                }
+            },
+            Page::Setting(item) => match btns {
+                BtnsState::Up => {
+                    let next_index = SETTING_ITEMS
+                        .iter()
+                        .enumerate()
+                        .find(|(_, ele)| **ele == item)
+                        .map(|(i, _)| (i + 1) % SETTING_ITEMS.len());
+
+                    *page = Page::Setting(SETTING_ITEMS[next_index.unwrap_or(0)]);
+                }
+                BtnsState::Down => {
+                    let next_index = SETTING_ITEMS
+                        .iter()
+                        .enumerate()
+                        .find(|(_, ele)| **ele == item)
+                        .map(|(i, _)| (i + SETTING_ITEMS.len() - 1) % SETTING_ITEMS.len());
+
+                    *page = Page::Setting(SETTING_ITEMS[next_index.unwrap_or(0)]);
+                }
+                BtnsState::UpLong => {}
+                BtnsState::DownLong => {}
+                BtnsState::UpDbk | BtnsState::DownDbk => {
+                    self.switch_direction().await;
+                }
+                BtnsState::UpAndDown => {
+                    *page = match item {
+                        SettingItem::Voltage => Page::Voltage,
+                        SettingItem::UVP => Page::UVP,
+                        SettingItem::OCP => Page::OCP,
+                        SettingItem::About => Page::About,
+                    }
+                }
+                BtnsState::UpAndDownLong => {
+                    *page = Page::Monitor;
+                }
+            },
+            Page::Voltage => match btns {
+                BtnsState::Up => {
+                    let mut pdo = PDO_MUTEX.lock().await;
+
+                    if *pdo > OCP_MAX {
+                        *pdo = 10.0;
+                    } else {
+                        *pdo += 0.25;
+                    }
+                }
+                BtnsState::Down => {
+                    let mut ocp = PDO_MUTEX.lock().await;
+
+                    if *ocp < 10.0 {
+                        *ocp = 0.0;
+                    } else {
+                        *ocp -= 0.25;
+                    }
+                }
+                BtnsState::UpAndDown => {
+                    *page = Page::Setting(SettingItem::UVP);
+                }
+                BtnsState::UpDbk | BtnsState::DownDbk => {
+                    self.switch_direction().await;
+                }
+                _ => {}
+            },
+            Page::UVP => match btns {
+                BtnsState::Up => {
+                    let mut uvp = UVP_MUTEX.lock().await;
+
+                    if *uvp > OCP_MAX {
+                        *uvp = 10.0;
+                    } else {
+                        *uvp += 0.25;
+                    }
+                }
+                BtnsState::Down => {
+                    let mut ocp = UVP_MUTEX.lock().await;
+
+                    if *ocp < 10.0 {
+                        *ocp = 0.0;
+                    } else {
+                        *ocp -= 0.25;
+                    }
+                }
+                BtnsState::UpAndDown => {
+                    *page = Page::Setting(SettingItem::UVP);
+                }
+                BtnsState::UpDbk | BtnsState::DownDbk => {
+                    self.switch_direction().await;
+                }
+                _ => {}
+            },
+            Page::OCP => match btns {
+                BtnsState::Up => {
+                    let mut ocp = OCP_MUTEX.lock().await;
+
+                    if *ocp > OCP_MAX {
+                        *ocp = 10.0;
+                    } else {
+                        *ocp += 0.25;
+                    }
+                }
+                BtnsState::Down => {
+                    let mut ocp = OCP_MUTEX.lock().await;
+
+                    if *ocp < 10.0 {
+                        *ocp = 0.0;
+                    } else {
+                        *ocp -= 0.25;
+                    }
+                }
+                BtnsState::UpAndDown => {
+                    *page = Page::Setting(SettingItem::OCP);
+                }
+                BtnsState::UpDbk | BtnsState::DownDbk => {
+                    self.switch_direction().await;
+                }
+                _ => {}
+            },
+            Page::About => match btns {
+                BtnsState::UpDbk | BtnsState::DownDbk => {
+                    self.switch_direction().await;
+                }
+                _ => {
+                    *page = Page::Setting(SettingItem::About);
+                }
+            },
+        }
+
+        let backlight = BACKLIGHT_MUTEX.lock().await;
+
+        let ocp = OCP_MUTEX.lock().await;
+        let uvp = UVP_MUTEX.lock().await;
+        let pdo = PDO_MUTEX.lock().await;
+
+        defmt::info!(
+            "page: {:?}, direction: {:?}, backlight: {:?}, ocp: {:?}, uvp: {:?}, pdo: {:?}",
+            *page,
+            self.direction,
+            *backlight,
+            *ocp,
+            *uvp,
+            *pdo
+        );
+    }
+
+    async fn switch_direction(&mut self) {
+        let mut direction = DISPLAY_DIRECTION_MUTEX.lock().await;
+
+        *direction = match *direction {
+            Direction::Normal => Direction::Reversed,
+            Direction::Reversed => Direction::Normal,
+        };
+
+        self.direction = *direction;
     }
 }
 

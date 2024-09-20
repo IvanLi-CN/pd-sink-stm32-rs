@@ -48,3 +48,34 @@ pub(crate) type ST7789RstPin = Output<'static, embassy_stm32::peripherals::PA12>
 pub(crate) type ST7789SpiDev = SpiDevice<'static, CriticalSectionRawMutex, SpiBus, ST7789CSPin>;
 
 pub(crate) type ST7789Display = ST7789<ST7789SpiDev, ST7789DCPin, ST7789RstPin>;
+
+#[derive(PartialEq, Clone, Copy, Debug, defmt::Format)]
+pub(crate) enum Page {
+    Monitor,
+    Setting(SettingItem),
+    Voltage,
+    UVP,
+    OCP,
+    About,
+}
+
+#[derive(PartialEq, Clone, Copy, Debug, defmt::Format)]
+pub(crate) enum SettingItem {
+    Voltage,
+    UVP,
+    OCP,
+    About,
+}
+
+pub(crate) const SETTING_ITEMS: &[SettingItem] = &[
+    SettingItem::Voltage,
+    SettingItem::UVP,
+    SettingItem::OCP,
+    SettingItem::About,
+];
+
+#[derive(PartialEq, Clone, Copy, Debug, defmt::Format)]
+pub(crate) enum Direction {
+    Normal,
+    Reversed,
+}
