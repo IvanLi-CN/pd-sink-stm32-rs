@@ -155,6 +155,8 @@ async fn main(spawner: Spawner) {
         }
         let display = display.as_mut().unwrap();
 
+        display.task().await;
+
         match ina226.bus_voltage_millivolts().await {
             Ok(val) => {
                 display.update_monitor_volts(val / 1000.0).await;

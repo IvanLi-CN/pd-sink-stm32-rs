@@ -1,12 +1,14 @@
 use embassy_futures::select::{select, Either};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, pubsub::ImmediatePublisher};
 use embassy_time::{Duration, Instant};
 
 use crate::{
     button::ButtonState,
     shared::{
-        BACKLIGHT_MUTEX, BTN_A_STATE_CHANNEL, BTN_B_STATE_CHANNEL, DISPLAY_DIRECTION_MUTEX,
-        MAX_SIMULTANEOUS_PRESS_DELAY, OCP_MAX, OCP_MUTEX, PAGE_MUTEX, PDO_MUTEX,
-        UVP_MUTEX,
+        BACKLIGHT_MUTEX, BACKLIGHT_PUBSUB, BTN_A_STATE_CHANNEL, BTN_B_STATE_CHANNEL,
+        DISPLAY_DIRECTION_MUTEX, DISPLAY_DIRECTION_PUBSUB, MAX_SIMULTANEOUS_PRESS_DELAY, OCP_MAX,
+        OCP_MUTEX, OCP_PUBSUB, PAGE_MUTEX, PAGE_PUBSUB, PDO_MUTEX, PDO_PUBSUB, UVP_MUTEX,
+        UVP_PUBSUB,
     },
     types::{Direction, Page, SettingItem, SETTING_ITEMS},
 };
@@ -23,14 +25,28 @@ pub enum BtnsState {
     UpAndDownLong,
 }
 
-pub struct Controller {
+pub struct Controller<'a> {
     direction: Direction,
+
+    page_pubsub: ImmediatePublisher<'a, CriticalSectionRawMutex, Page, 2, 2, 1>,
+    backlight_pubsub: ImmediatePublisher<'a, CriticalSectionRawMutex, u16, 2, 2, 1>,
+    display_direction_pubsub: ImmediatePublisher<'a, CriticalSectionRawMutex, Direction, 2, 2, 1>,
+    ocp_pubsub: ImmediatePublisher<'a, CriticalSectionRawMutex, f64, 2, 2, 1>,
+    uvp_pubsub: ImmediatePublisher<'a, CriticalSectionRawMutex, f64, 2, 2, 1>,
+    pdo_pubsub: ImmediatePublisher<'a, CriticalSectionRawMutex, f64, 2, 2, 1>,
 }
 
-impl Controller {
+impl<'a> Controller<'a> {
     pub fn new() -> Self {
         Self {
             direction: Direction::Normal,
+
+            page_pubsub: PAGE_PUBSUB.immediate_publisher(),
+            backlight_pubsub: BACKLIGHT_PUBSUB.immediate_publisher(),
+            display_direction_pubsub: DISPLAY_DIRECTION_PUBSUB.immediate_publisher(),
+            ocp_pubsub: OCP_PUBSUB.immediate_publisher(),
+            uvp_pubsub: UVP_PUBSUB.immediate_publisher(),
+            pdo_pubsub: PDO_PUBSUB.immediate_publisher(),
         }
     }
 
@@ -144,6 +160,12 @@ impl Controller {
                     } else {
                         *backlight += 1;
                     }
+
+                    let _backlight = *backlight;
+
+                    drop(backlight);
+
+                    self.backlight_pubsub.publish_immediate(_backlight);
                 }
                 BtnsState::Down => {
                     let mut backlight = BACKLIGHT_MUTEX.lock().await;
@@ -153,12 +175,24 @@ impl Controller {
                     } else {
                         *backlight -= 1;
                     }
+
+                    let _backlight = *backlight;
+
+                    drop(backlight);
+
+                    self.backlight_pubsub.publish_immediate(_backlight);
                 }
                 BtnsState::UpLong => {}
                 BtnsState::DownLong => {
                     let mut backlight = BACKLIGHT_MUTEX.lock().await;
 
                     *backlight = 0;
+
+                    let _backlight = *backlight;
+
+                    drop(backlight);
+
+                    self.backlight_pubsub.publish_immediate(_backlight);
                 }
                 BtnsState::UpDbk | BtnsState::DownDbk => {
                     let mut direction = DISPLAY_DIRECTION_MUTEX.lock().await;
@@ -167,12 +201,30 @@ impl Controller {
                         Direction::Normal => Direction::Reversed,
                         Direction::Reversed => Direction::Normal,
                     };
+
+                    let _direction = *direction;
+
+                    drop(direction);
+
+                    self.display_direction_pubsub.publish_immediate(_direction);
                 }
                 BtnsState::UpAndDown => {
                     *page = Page::OCP;
+
+                    let _page = *page;
+
+                    drop(page);
+
+                    self.page_pubsub.publish_immediate(_page);
                 }
                 BtnsState::UpAndDownLong => {
                     *page = Page::Setting(SettingItem::Voltage);
+
+                    let _page = *page;
+
+                    drop(page);
+
+                    self.page_pubsub.publish_immediate(_page);
                 }
             },
             Page::Setting(item) => match btns {
@@ -184,6 +236,12 @@ impl Controller {
                         .map(|(i, _)| (i + 1) % SETTING_ITEMS.len());
 
                     *page = Page::Setting(SETTING_ITEMS[next_index.unwrap_or(0)]);
+
+                    let _page = *page;
+
+                    drop(page);
+
+                    self.page_pubsub.publish_immediate(_page);
                 }
                 BtnsState::Down => {
                     let next_index = SETTING_ITEMS
@@ -193,6 +251,12 @@ impl Controller {
                         .map(|(i, _)| (i + SETTING_ITEMS.len() - 1) % SETTING_ITEMS.len());
 
                     *page = Page::Setting(SETTING_ITEMS[next_index.unwrap_or(0)]);
+
+                    let _page = *page;
+
+                    drop(page);
+
+                    self.page_pubsub.publish_immediate(_page);
                 }
                 BtnsState::UpLong => {}
                 BtnsState::DownLong => {}
@@ -205,10 +269,22 @@ impl Controller {
                         SettingItem::UVP => Page::UVP,
                         SettingItem::OCP => Page::OCP,
                         SettingItem::About => Page::About,
-                    }
+                    };
+
+                    let _page = *page;
+
+                    drop(page);
+
+                    self.page_pubsub.publish_immediate(_page);
                 }
                 BtnsState::UpAndDownLong => {
                     *page = Page::Monitor;
+
+                    let _page = *page;
+
+                    drop(page);
+
+                    self.page_pubsub.publish_immediate(_page);
                 }
             },
             Page::Voltage => match btns {
@@ -220,18 +296,36 @@ impl Controller {
                     } else {
                         *pdo += 0.25;
                     }
+
+                    let _pdo = *pdo;
+
+                    drop(pdo);
+
+                    self.pdo_pubsub.publish_immediate(_pdo);
                 }
                 BtnsState::Down => {
-                    let mut ocp = PDO_MUTEX.lock().await;
+                    let mut pdo = PDO_MUTEX.lock().await;
 
-                    if *ocp < 10.0 {
-                        *ocp = 0.0;
+                    if *pdo < 10.0 {
+                        *pdo = 0.0;
                     } else {
-                        *ocp -= 0.25;
+                        *pdo -= 0.25;
                     }
+
+                    let _pdo = *pdo;
+
+                    drop(pdo);
+
+                    self.pdo_pubsub.publish_immediate(_pdo);
                 }
                 BtnsState::UpAndDown => {
                     *page = Page::Setting(SettingItem::UVP);
+
+                    let _page = *page;
+
+                    drop(page);
+
+                    self.page_pubsub.publish_immediate(_page);
                 }
                 BtnsState::UpDbk | BtnsState::DownDbk => {
                     self.switch_direction().await;
@@ -247,18 +341,36 @@ impl Controller {
                     } else {
                         *uvp += 0.25;
                     }
+
+                    let _uvp = *uvp;
+
+                    drop(uvp);
+
+                    self.uvp_pubsub.publish_immediate(_uvp);
                 }
                 BtnsState::Down => {
-                    let mut ocp = UVP_MUTEX.lock().await;
+                    let mut uvp = UVP_MUTEX.lock().await;
 
-                    if *ocp < 10.0 {
-                        *ocp = 0.0;
+                    if *uvp < 10.0 {
+                        *uvp = 0.0;
                     } else {
-                        *ocp -= 0.25;
+                        *uvp -= 0.25;
                     }
+
+                    let _uvp = *uvp;
+
+                    drop(uvp);
+
+                    self.uvp_pubsub.publish_immediate(_uvp);
                 }
                 BtnsState::UpAndDown => {
                     *page = Page::Setting(SettingItem::UVP);
+
+                    let _page = *page;
+
+                    drop(page);
+
+                    self.page_pubsub.publish_immediate(_page);
                 }
                 BtnsState::UpDbk | BtnsState::DownDbk => {
                     self.switch_direction().await;
@@ -274,6 +386,12 @@ impl Controller {
                     } else {
                         *ocp += 0.25;
                     }
+
+                    let _ocp = *ocp;
+
+                    drop(ocp);
+
+                    self.ocp_pubsub.publish_immediate(_ocp);
                 }
                 BtnsState::Down => {
                     let mut ocp = OCP_MUTEX.lock().await;
@@ -283,9 +401,21 @@ impl Controller {
                     } else {
                         *ocp -= 0.25;
                     }
+
+                    let _ocp = *ocp;
+
+                    drop(ocp);
+
+                    self.ocp_pubsub.publish_immediate(_ocp);
                 }
                 BtnsState::UpAndDown => {
                     *page = Page::Setting(SettingItem::OCP);
+
+                    let _page = *page;
+
+                    drop(page);
+
+                    self.page_pubsub.publish_immediate(_page);
                 }
                 BtnsState::UpDbk | BtnsState::DownDbk => {
                     self.switch_direction().await;
@@ -298,25 +428,15 @@ impl Controller {
                 }
                 _ => {
                     *page = Page::Setting(SettingItem::About);
+
+                    let _page = *page;
+
+                    drop(page);
+
+                    self.page_pubsub.publish_immediate(_page);
                 }
             },
         }
-
-        let backlight = BACKLIGHT_MUTEX.lock().await;
-
-        let ocp = OCP_MUTEX.lock().await;
-        let uvp = UVP_MUTEX.lock().await;
-        let pdo = PDO_MUTEX.lock().await;
-
-        defmt::info!(
-            "page: {:?}, direction: {:?}, backlight: {:?}, ocp: {:?}, uvp: {:?}, pdo: {:?}",
-            *page,
-            self.direction,
-            *backlight,
-            *ocp,
-            *uvp,
-            *pdo
-        );
     }
 
     async fn switch_direction(&mut self) {
@@ -328,6 +448,12 @@ impl Controller {
         };
 
         self.direction = *direction;
+
+        let _direction = *direction;
+
+        drop(direction);
+
+        self.display_direction_pubsub.publish_immediate(_direction);
     }
 }
 

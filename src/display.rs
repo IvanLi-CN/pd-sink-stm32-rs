@@ -1,9 +1,7 @@
 use core::convert::Infallible;
 
-use embedded_graphics::{
-    pixelcolor::Rgb565,
-    prelude::{RgbColor, WebColors},
-};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, pubsub::Subscriber};
+use embedded_graphics::{pixelcolor::Rgb565, prelude::WebColors};
 use embedded_hal::digital::OutputPin;
 use embedded_hal_async::spi::SpiDevice;
 use st7789::ST7789;
@@ -13,10 +11,14 @@ use crate::{
         get_index_by_char, ARIAL_ROUND_16_24, ARIAL_ROUND_16_24_INDEX, GROTESK_24_48,
         GROTESK_24_48_INDEX,
     },
-    types::{PowerInfo, StatusInfo},
+    shared::{
+        COLOR_AMPERAGE, COLOR_BACKGROUND, COLOR_BASE, COLOR_PRIMARY, COLOR_PRIMARY_CONTENT,
+        COLOR_TEXT, COLOR_VOLTAGE, COLOR_WATTAGE, PAGE_PUBSUB,
+    },
+    types::{Page, PowerInfo, SettingItem, StatusInfo, SETTING_ITEMS},
 };
 
-pub struct Display<SPI, DC, RST>
+pub struct Display<'a, SPI, DC, RST>
 where
     SPI: SpiDevice,
     DC: OutputPin<Error = Infallible>,
@@ -24,14 +26,17 @@ where
 {
     st7789: ST7789<SPI, DC, RST>,
     power_info: PowerInfo,
-    prev_power_info: PowerInfo,
     status_info: StatusInfo,
     ryu_buffer: ryu::Buffer,
     prev_ryu_buffer: ryu::Buffer,
     force_render: bool,
+
+    page: Page,
+
+    page_pubsub: Subscriber<'a, CriticalSectionRawMutex, Page, 2, 2, 1>,
 }
 
-impl<SPI, DC, RST> Display<SPI, DC, RST>
+impl<'a, SPI, DC, RST> Display<'a, SPI, DC, RST>
 where
     SPI: SpiDevice,
     DC: OutputPin<Error = Infallible>,
@@ -41,11 +46,13 @@ where
         Self {
             st7789,
             power_info: PowerInfo::default(),
-            prev_power_info: PowerInfo::default(),
             status_info: StatusInfo::default(),
             ryu_buffer: ryu::Buffer::new(),
             prev_ryu_buffer: ryu::Buffer::new(),
             force_render: true,
+
+            page: Page::Monitor,
+            page_pubsub: PAGE_PUBSUB.subscriber().unwrap(),
         }
     }
 
@@ -53,11 +60,6 @@ where
         self.force_render = true;
 
         self.st7789.init().await.map_err(|_| ())?;
-
-        self.st7789
-            .fill_color(Rgb565::CSS_SLATE_GRAY)
-            .await
-            .unwrap();
 
         self.update_layout().await;
 
@@ -74,66 +76,76 @@ where
     }
 
     pub async fn update_monitor_volts(&mut self, volts: f64) {
-        self.power_info.volts = volts;
+        if !matches!(self.page, Page::Monitor) {
+            return;
+        }
 
-        let curr = self.ryu_buffer.format(self.power_info.volts);
-        let prev = self.prev_ryu_buffer.format(self.prev_power_info.volts);
+        let curr = self.ryu_buffer.format(volts);
+        let prev = self.prev_ryu_buffer.format(self.power_info.volts);
 
         Self::render_monitor(
             &mut self.st7789,
             curr,
             prev,
             10,
-            Rgb565::CSS_DARK_GRAY,
-            Rgb565::WHITE,
+            COLOR_VOLTAGE,
+            COLOR_PRIMARY_CONTENT,
             self.force_render,
         )
         .await;
 
-        self.prev_power_info.volts = self.power_info.volts;
+        self.power_info.volts = volts;
     }
 
     pub async fn update_monitor_amps(&mut self, amps: f64) {
-        self.power_info.amps = amps;
+        if !matches!(self.page, Page::Monitor) {
+            return;
+        }
 
-        let curr = self.ryu_buffer.format(self.power_info.amps);
-        let prev = self.prev_ryu_buffer.format(self.prev_power_info.amps);
+        let curr = self.ryu_buffer.format(amps);
+        let prev = self.prev_ryu_buffer.format(self.power_info.amps);
 
         Self::render_monitor(
             &mut self.st7789,
             curr,
             prev,
             60,
-            Rgb565::CSS_DARK_GRAY,
-            Rgb565::WHITE,
+            COLOR_AMPERAGE,
+            COLOR_PRIMARY_CONTENT,
             self.force_render,
         )
         .await;
 
-        self.prev_power_info.amps = self.power_info.amps;
+        self.power_info.amps = amps;
     }
 
     pub async fn update_monitor_watts(&mut self, watts: f64) {
-        self.power_info.watts = watts;
+        if !matches!(self.page, Page::Monitor) {
+            return;
+        }
 
-        let curr = self.ryu_buffer.format(self.power_info.watts);
-        let prev = self.prev_ryu_buffer.format(self.prev_power_info.watts);
+        let curr = self.ryu_buffer.format(watts);
+        let prev = self.prev_ryu_buffer.format(self.power_info.watts);
 
         Self::render_monitor(
             &mut self.st7789,
             curr,
             prev,
             110,
-            Rgb565::CSS_DARK_GRAY,
-            Rgb565::WHITE,
+            COLOR_WATTAGE,
+            COLOR_PRIMARY_CONTENT,
             self.force_render,
         )
         .await;
 
-        self.prev_power_info.watts = self.power_info.watts;
+        self.power_info.watts = watts;
     }
 
     pub async fn update_target_volts(&mut self, volts: f64) {
+        if !matches!(self.page, Page::Monitor) {
+            return;
+        }
+
         self.status_info.target_volts = volts;
 
         let curr = self.ryu_buffer.format(self.status_info.target_volts);
@@ -143,14 +155,18 @@ where
             curr,
             210,
             35,
-            Rgb565::CSS_DARK_GRAY,
-            Rgb565::WHITE,
+            COLOR_BACKGROUND,
+            COLOR_BASE,
             4,
         )
         .await;
     }
 
     pub async fn update_limit_amps(&mut self, amps: f64) {
+        if !matches!(self.page, Page::Monitor) {
+            return;
+        }
+
         self.status_info.limit_amps = amps;
 
         let curr: &str = self.ryu_buffer.format(self.status_info.limit_amps);
@@ -160,14 +176,18 @@ where
             curr,
             210,
             85,
-            Rgb565::CSS_DARK_GRAY,
-            Rgb565::WHITE,
+            COLOR_BACKGROUND,
+            COLOR_BASE,
             4,
         )
         .await;
     }
 
     pub async fn update_output(&mut self, output: bool) {
+        if !matches!(self.page, Page::Monitor) {
+            return;
+        }
+
         self.status_info.output = output;
 
         Self::render_status(
@@ -175,21 +195,40 @@ where
             if output { "ON" } else { "OFF" },
             210,
             135,
-            Rgb565::CSS_DARK_GRAY,
-            Rgb565::WHITE,
+            COLOR_BACKGROUND,
+            COLOR_BASE,
             3,
         )
         .await;
     }
 
     pub async fn update_layout(&mut self) {
+        self.st7789
+            .fill_color(Rgb565::CSS_SLATE_GRAY)
+            .await
+            .unwrap();
+
+        match self.page {
+            Page::Monitor => self.update_monitor_layout().await,
+            Page::Setting(setting_item) => self.update_setting_layout(setting_item).await,
+            Page::Voltage => self.update_monitor_layout().await,
+            Page::UVP => self.update_monitor_layout().await,
+            Page::OCP => self.update_monitor_layout().await,
+            Page::About => {
+                self.update_setting_layout(SettingItem::About).await;
+                self.update_about_layout().await;
+            }
+        }
+    }
+
+    pub async fn update_monitor_layout(&mut self) {
         Self::render_status(
             &mut self.st7789,
             "V",
             186,
             34,
             Rgb565::CSS_DARK_GRAY,
-            Rgb565::WHITE,
+            COLOR_PRIMARY_CONTENT,
             1,
         )
         .await;
@@ -200,7 +239,7 @@ where
             186,
             82,
             Rgb565::CSS_DARK_GRAY,
-            Rgb565::WHITE,
+            COLOR_PRIMARY_CONTENT,
             1,
         )
         .await;
@@ -211,7 +250,7 @@ where
             186,
             130,
             Rgb565::CSS_DARK_GRAY,
-            Rgb565::WHITE,
+            COLOR_PRIMARY_CONTENT,
             1,
         )
         .await;
@@ -222,7 +261,7 @@ where
             210,
             10,
             Rgb565::CSS_DARK_GRAY,
-            Rgb565::WHITE,
+            COLOR_PRIMARY_CONTENT,
             3,
         )
         .await;
@@ -233,7 +272,7 @@ where
             210,
             60,
             Rgb565::CSS_DARK_GRAY,
-            Rgb565::WHITE,
+            COLOR_PRIMARY_CONTENT,
             3,
         )
         .await;
@@ -244,10 +283,120 @@ where
             210,
             110,
             Rgb565::CSS_DARK_GRAY,
-            Rgb565::WHITE,
+            COLOR_PRIMARY_CONTENT,
             3,
         )
         .await;
+    }
+
+    pub async fn update_setting_layout(&mut self, setting_item: SettingItem) {
+        let line_bytes = [0xff_u8; 43];
+        self.st7789
+            .write_area(
+                160,
+                0,
+                2,
+                &line_bytes,
+                Rgb565::CSS_DARK_GRAY,
+                Rgb565::CSS_DARK_GRAY,
+            )
+            .await
+            .unwrap();
+
+        let offset = SETTING_ITEMS
+            .iter()
+            .enumerate()
+            .find(|(_, ele)| **ele == setting_item)
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+
+        for i in 0..SETTING_ITEMS.len().min(5) {
+            let idx = (offset + i + SETTING_ITEMS.len() - 2) % SETTING_ITEMS.len();
+            let item = SETTING_ITEMS[idx];
+
+            let (color, bg_color) = if item == setting_item {
+                (COLOR_PRIMARY_CONTENT, COLOR_PRIMARY)
+            } else {
+                (COLOR_TEXT, COLOR_BACKGROUND)
+            };
+
+            let text = match item {
+                SettingItem::Voltage => "  PDO  ",
+                SettingItem::UVP => "  UVP  ",
+                SettingItem::OCP => "  OCP  ",
+                SettingItem::About => " About ",
+            };
+
+            let x = 10;
+            let y = (i as u16) * 38 + 10;
+
+            Self::render_status(
+                &mut self.st7789,
+                text,
+                x,
+                y,
+                bg_color,
+                color,
+                text.len() as u16,
+            )
+            .await;
+        }
+    }
+
+    pub async fn update_about_layout(&mut self) {
+        Self::render_status(
+            &mut self.st7789,
+            "Author:",
+            170,
+            10,
+            COLOR_BACKGROUND,
+            COLOR_TEXT,
+            7,
+        )
+        .await;
+
+        Self::render_status(
+            &mut self.st7789,
+            "  Ivan Li",
+            170,
+            30,
+            COLOR_BACKGROUND,
+            COLOR_TEXT,
+            9,
+        )
+        .await;
+
+        Self::render_status(
+            &mut self.st7789,
+            "Version:",
+            170,
+            60,
+            COLOR_BACKGROUND,
+            COLOR_TEXT,
+            8,
+        )
+        .await;
+
+        Self::render_status(
+            &mut self.st7789,
+            "  0.1.0",
+            170,
+            90,
+            COLOR_BACKGROUND,
+            COLOR_TEXT,
+            7,
+        )
+        .await;
+    }
+
+    pub async fn task(&mut self) {
+        let page = self.page_pubsub.try_next_message_pure();
+
+        if let Some(page) = page {
+            self.page = page;
+
+            self.update_layout().await;
+        }
     }
 
     async fn render_monitor(

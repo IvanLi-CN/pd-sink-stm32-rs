@@ -3,6 +3,7 @@ use embassy_sync::{
     pubsub::PubSubChannel,
 };
 use embassy_time::Duration;
+use embedded_graphics::{pixelcolor::Rgb565, prelude::{RgbColor, WebColors}};
 
 use crate::{
     button::ButtonState,
@@ -16,6 +17,18 @@ pub const DOUBLE_CLICK_TIMEOUT: Duration = Duration::from_millis(300);
 pub const MAX_SIMULTANEOUS_PRESS_DELAY: Duration = Duration::from_millis(100);
 
 pub const OCP_MAX: f64 = 10.0;
+
+pub const COLOR_PRIMARY: Rgb565 = Rgb565::CSS_DODGER_BLUE;
+pub const COLOR_SECONDARY: Rgb565 = Rgb565::CSS_TURQUOISE;
+pub const COLOR_BACKGROUND: Rgb565 = Rgb565::CSS_ALICE_BLUE;
+pub const COLOR_PRIMARY_CONTENT: Rgb565 = Rgb565::WHITE;
+pub const COLOR_BASE: Rgb565 = WebColors::CSS_DARK_GRAY;
+pub const COLOR_TEXT: Rgb565 = WebColors::CSS_DARK_SLATE_GRAY;
+pub const COLOR_VOLTAGE: Rgb565 = WebColors::CSS_GOLD;
+pub const COLOR_AMPERAGE: Rgb565 = WebColors::CSS_ORANGE_RED;
+pub const COLOR_WATTAGE: Rgb565 = WebColors::CSS_FOREST_GREEN;
+pub const COLOR_ERROR: Rgb565 = WebColors::CSS_DARK_RED;
+pub const COLOR_INFO: Rgb565 = WebColors::CSS_STEEL_BLUE;
 
 pub static DISPLAY: Mutex<
     CriticalSectionRawMutex,
