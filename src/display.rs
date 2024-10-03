@@ -88,8 +88,8 @@ where
             curr,
             prev,
             10,
+            COLOR_BACKGROUND,
             COLOR_VOLTAGE,
-            COLOR_PRIMARY_CONTENT,
             self.force_render,
         )
         .await;
@@ -110,8 +110,8 @@ where
             curr,
             prev,
             60,
+            COLOR_BACKGROUND,
             COLOR_AMPERAGE,
-            COLOR_PRIMARY_CONTENT,
             self.force_render,
         )
         .await;
@@ -132,8 +132,8 @@ where
             curr,
             prev,
             110,
+            COLOR_BACKGROUND,
             COLOR_WATTAGE,
-            COLOR_PRIMARY_CONTENT,
             self.force_render,
         )
         .await;
@@ -156,7 +156,7 @@ where
             210,
             35,
             COLOR_BACKGROUND,
-            COLOR_BASE,
+            COLOR_TEXT,
             4,
         )
         .await;
@@ -177,7 +177,7 @@ where
             210,
             85,
             COLOR_BACKGROUND,
-            COLOR_BASE,
+            COLOR_TEXT,
             4,
         )
         .await;
@@ -196,7 +196,7 @@ where
             210,
             135,
             COLOR_BACKGROUND,
-            COLOR_BASE,
+            COLOR_TEXT,
             3,
         )
         .await;
@@ -204,7 +204,7 @@ where
 
     pub async fn update_layout(&mut self) {
         self.st7789
-            .fill_color(Rgb565::CSS_SLATE_GRAY)
+            .fill_color(COLOR_BACKGROUND)
             .await
             .unwrap();
 
@@ -225,10 +225,10 @@ where
         Self::render_status(
             &mut self.st7789,
             "V",
-            186,
+            180,
             34,
-            Rgb565::CSS_DARK_GRAY,
-            COLOR_PRIMARY_CONTENT,
+            COLOR_BACKGROUND,
+            COLOR_VOLTAGE,
             1,
         )
         .await;
@@ -236,10 +236,10 @@ where
         Self::render_status(
             &mut self.st7789,
             "A",
-            186,
+            180,
             82,
-            Rgb565::CSS_DARK_GRAY,
-            COLOR_PRIMARY_CONTENT,
+            COLOR_BACKGROUND,
+            COLOR_AMPERAGE,
             1,
         )
         .await;
@@ -247,10 +247,10 @@ where
         Self::render_status(
             &mut self.st7789,
             "W",
-            186,
+            180,
             130,
-            Rgb565::CSS_DARK_GRAY,
-            COLOR_PRIMARY_CONTENT,
+            COLOR_BACKGROUND,
+            COLOR_WATTAGE,
             1,
         )
         .await;
@@ -260,8 +260,8 @@ where
             "PDO",
             210,
             10,
-            Rgb565::CSS_DARK_GRAY,
-            COLOR_PRIMARY_CONTENT,
+            COLOR_BACKGROUND,
+            COLOR_BASE,
             3,
         )
         .await;
@@ -271,8 +271,8 @@ where
             "Max",
             210,
             60,
-            Rgb565::CSS_DARK_GRAY,
-            COLOR_PRIMARY_CONTENT,
+            COLOR_BACKGROUND,
+            COLOR_BASE,
             3,
         )
         .await;
@@ -282,8 +282,8 @@ where
             "Out",
             210,
             110,
-            Rgb565::CSS_DARK_GRAY,
-            COLOR_PRIMARY_CONTENT,
+            COLOR_BACKGROUND,
+            COLOR_BASE,
             3,
         )
         .await;
@@ -426,7 +426,7 @@ where
 
             st7789
                 .write_area(
-                    10 + idx * 25,
+                    10 + idx * 24,
                     y,
                     24,
                     GROTESK_24_48[get_index_by_char(GROTESK_24_48_INDEX, char)],
