@@ -13,7 +13,9 @@ use crate::{
         GROTESK_24_48_INDEX,
     },
     shared::{
-        AVAILABLE_VOLT_CURR_MUTEX, COLOR_AMPERAGE, COLOR_BACKGROUND, COLOR_BASE, COLOR_ERROR, COLOR_PRIMARY, COLOR_PRIMARY_CONTENT, COLOR_TEXT, COLOR_TEXT_DISABLED, COLOR_VOLTAGE, COLOR_WATTAGE, PAGE_PUBSUB
+        AVAILABLE_VOLT_CURR_MUTEX, COLOR_AMPERAGE, COLOR_BACKGROUND, COLOR_BASE, COLOR_ERROR,
+        COLOR_PRIMARY, COLOR_PRIMARY_CONTENT, COLOR_TEXT, COLOR_TEXT_DISABLED, COLOR_VOLTAGE,
+        COLOR_WATTAGE, PAGE_PUBSUB,
     },
     types::{
         AvailableVoltCurr, Page, PowerInfo, SettingItem, StatusInfo, SETTING_ITEMS, VOLTAGE_ITEMS,
@@ -208,12 +210,22 @@ where
         self.st7789.fill_color(COLOR_BACKGROUND).await.unwrap();
 
         match self.page {
-            Page::Monitor => self.update_monitor_layout().await,
+            Page::Monitor => {
+                self.update_monitor_layout().await;
+                self.force_render = true;
+                self.update_monitor_amps(0.0).await;
+                self.update_monitor_volts(0.0).await;
+                self.update_monitor_watts(0.0).await;
+                self.update_target_volts(0.0).await;
+                self.update_limit_amps(0.0).await;
+                self.update_output(false).await;
+                self.force_render = false;
+            }
             Page::Setting(setting_item) => self.update_setting_layout(setting_item).await,
             Page::Voltage(selected) => {
                 self.update_setting_layout(SettingItem::Voltage).await;
                 self.update_voltage_layout(selected).await;
-            },
+            }
             Page::UVP => self.update_monitor_layout().await,
             Page::OCP => self.update_monitor_layout().await,
             Page::About => {
