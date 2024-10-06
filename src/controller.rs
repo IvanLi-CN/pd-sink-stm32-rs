@@ -328,6 +328,20 @@ impl<'a> Controller<'a> {
 
                     self.pdo_pubsub.publish_immediate(selected);
                 }
+                BtnsState::UpAndDownLong => {
+                    *page = Page::Monitor;
+
+                    let _page = *page;
+
+                    drop(page);
+
+                    self.page_pubsub.publish_immediate(_page);
+
+                    let mut pdo = PDO_MUTEX.lock().await;
+                    *pdo = selected;
+
+                    self.pdo_pubsub.publish_immediate(selected);
+                }
                 BtnsState::UpDbk | BtnsState::DownDbk => {
                     self.switch_direction().await;
                 }
