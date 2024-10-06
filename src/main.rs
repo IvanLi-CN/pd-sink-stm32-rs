@@ -122,7 +122,7 @@ async fn main(spawner: Spawner) {
         Default::default(),
     );
 
-    let i2c: Mutex<CriticalSectionRawMutex, _> = Mutex::new(i2c);
+    let i2c = Mutex::new(i2c);
     let i2c = HUSB238_I2C_MUTEX.init(i2c);
 
     // init ina226
@@ -132,9 +132,9 @@ async fn main(spawner: Spawner) {
     ina226
         .set_configuration(&ina226::Config {
             mode: ina226::MODE::ShuntBusVoltageContinuous,
-            avg: ina226::AVG::_4,
-            vbusct: ina226::VBUSCT::_4156us,
-            vshct: ina226::VSHCT::_4156us,
+            avg: ina226::AVG::_128,
+            vbusct: ina226::VBUSCT::_8244us,
+            vshct: ina226::VSHCT::_8244us,
         })
         .await
         .unwrap();

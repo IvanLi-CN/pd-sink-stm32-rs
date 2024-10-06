@@ -4,7 +4,7 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, pubsub::Subscri
 use embedded_graphics::{pixelcolor::Rgb565, prelude::WebColors};
 use embedded_hal::digital::OutputPin;
 use embedded_hal_async::spi::SpiDevice;
-use husb238::{SrcPdo, Voltage};
+use husb238::SrcPdo;
 use st7789::ST7789;
 
 use crate::{
@@ -13,13 +13,11 @@ use crate::{
         GROTESK_24_48_INDEX,
     },
     shared::{
-        AVAILABLE_VOLT_CURR_MUTEX, COLOR_AMPERAGE, COLOR_BACKGROUND, COLOR_BASE, COLOR_ERROR,
-        COLOR_PRIMARY, COLOR_PRIMARY_CONTENT, COLOR_TEXT, COLOR_TEXT_DISABLED, COLOR_VOLTAGE,
-        COLOR_WATTAGE, PAGE_PUBSUB,
+        AVAILABLE_VOLT_CURR_MUTEX, COLOR_AMPERAGE, COLOR_BACKGROUND, COLOR_BASE, COLOR_PRIMARY,
+        COLOR_PRIMARY_CONTENT, COLOR_TEXT, COLOR_TEXT_DISABLED, COLOR_VOLTAGE, COLOR_WATTAGE,
+        PAGE_PUBSUB,
     },
-    types::{
-        AvailableVoltCurr, Page, PowerInfo, SettingItem, StatusInfo, SETTING_ITEMS, VOLTAGE_ITEMS,
-    },
+    types::{Page, PowerInfo, SettingItem, StatusInfo, SETTING_ITEMS, VOLTAGE_ITEMS},
 };
 
 pub struct Display<'a, SPI, DC, RST>
