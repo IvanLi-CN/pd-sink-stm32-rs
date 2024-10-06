@@ -1,13 +1,16 @@
 use embassy_futures::select::{select, Either};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, pubsub::ImmediatePublisher};
 use embassy_time::{Duration, Instant};
+use heapless::Vec;
+use husb238::{SrcPdo, Voltage};
 
 use crate::{
     button::ButtonState,
     shared::{
-        BACKLIGHT_MUTEX, BACKLIGHT_PUBSUB, BTN_A_STATE_CHANNEL, BTN_B_STATE_CHANNEL,
-        DISPLAY_DIRECTION_MUTEX, DISPLAY_DIRECTION_PUBSUB, MAX_SIMULTANEOUS_PRESS_DELAY, OCP_MAX,
-        OCP_MUTEX, OCP_PUBSUB, PAGE_MUTEX, PAGE_PUBSUB, PDO_MUTEX, PDO_PUBSUB, UVP_MUTEX,
+        get_available_voltages, AVAILABLE_VOLT_CURR_MUTEX, BACKLIGHT_MUTEX, BACKLIGHT_PUBSUB,
+        BTN_A_STATE_CHANNEL, BTN_B_STATE_CHANNEL, DISPLAY_DIRECTION_MUTEX,
+        DISPLAY_DIRECTION_PUBSUB, MAX_SIMULTANEOUS_PRESS_DELAY, OCP_MAX, OCP_MUTEX, OCP_PUBSUB,
+        PAGE_MUTEX, PAGE_PUBSUB, PDO_MUTEX, PDO_PUBSUB, SELECTED_VOLTAGE_MUTEX, UVP_MUTEX,
         UVP_PUBSUB,
     },
     types::{Direction, Page, SettingItem, SETTING_ITEMS},
@@ -33,7 +36,7 @@ pub struct Controller<'a> {
     display_direction_pubsub: ImmediatePublisher<'a, CriticalSectionRawMutex, Direction, 2, 2, 1>,
     ocp_pubsub: ImmediatePublisher<'a, CriticalSectionRawMutex, f64, 2, 2, 1>,
     uvp_pubsub: ImmediatePublisher<'a, CriticalSectionRawMutex, f64, 2, 2, 1>,
-    pdo_pubsub: ImmediatePublisher<'a, CriticalSectionRawMutex, f64, 2, 2, 1>,
+    pdo_pubsub: ImmediatePublisher<'a, CriticalSectionRawMutex, SrcPdo, 2, 2, 1>,
 }
 
 impl<'a> Controller<'a> {
@@ -265,7 +268,10 @@ impl<'a> Controller<'a> {
                 }
                 BtnsState::UpAndDown => {
                     *page = match item {
-                        SettingItem::Voltage => Page::Voltage,
+                        SettingItem::Voltage => {
+                            let selected_volt = SELECTED_VOLTAGE_MUTEX.lock().await;
+                            Page::Voltage(*selected_volt)
+                        }
                         SettingItem::UVP => Page::UVP,
                         SettingItem::OCP => Page::OCP,
                         SettingItem::About => Page::About,
@@ -287,36 +293,26 @@ impl<'a> Controller<'a> {
                     self.page_pubsub.publish_immediate(_page);
                 }
             },
-            Page::Voltage => match btns {
+            Page::Voltage(selected) => match btns {
                 BtnsState::Up => {
-                    let mut pdo = PDO_MUTEX.lock().await;
+                    let selected = self.up_voltage(selected).await;
+                    *page = Page::Voltage(selected);
 
-                    if *pdo > OCP_MAX {
-                        *pdo = 10.0;
-                    } else {
-                        *pdo += 0.25;
-                    }
+                    let _page = *page;
 
-                    let _pdo = *pdo;
+                    drop(page);
 
-                    drop(pdo);
-
-                    self.pdo_pubsub.publish_immediate(_pdo);
+                    self.page_pubsub.publish_immediate(_page);
                 }
                 BtnsState::Down => {
-                    let mut pdo = PDO_MUTEX.lock().await;
+                    let selected = self.down_voltage(selected).await;
+                    *page = Page::Voltage(selected);
 
-                    if *pdo < 10.0 {
-                        *pdo = 0.0;
-                    } else {
-                        *pdo -= 0.25;
-                    }
+                    let _page = *page;
 
-                    let _pdo = *pdo;
+                    drop(page);
 
-                    drop(pdo);
-
-                    self.pdo_pubsub.publish_immediate(_pdo);
+                    self.page_pubsub.publish_immediate(_page);
                 }
                 BtnsState::UpAndDown => {
                     *page = Page::Setting(SettingItem::UVP);
@@ -326,6 +322,11 @@ impl<'a> Controller<'a> {
                     drop(page);
 
                     self.page_pubsub.publish_immediate(_page);
+
+                    let mut pdo = PDO_MUTEX.lock().await;
+                    *pdo = selected;
+
+                    self.pdo_pubsub.publish_immediate(selected);
                 }
                 BtnsState::UpDbk | BtnsState::DownDbk => {
                     self.switch_direction().await;
@@ -454,6 +455,34 @@ impl<'a> Controller<'a> {
         drop(direction);
 
         self.display_direction_pubsub.publish_immediate(_direction);
+    }
+
+    async fn up_voltage(&mut self, selected: SrcPdo) -> SrcPdo {
+        let available = get_available_voltages().await;
+
+        let index = available.iter().position(|&x| selected == x);
+
+        if index.is_none() {
+            return available[0];
+        }
+
+        let index = index.unwrap();
+
+        return available[(index + 1) % available.len()];
+    }
+
+    async fn down_voltage(&mut self, selected: SrcPdo) -> SrcPdo {
+        let available = get_available_voltages().await;
+
+        let index = available.iter().position(|&x| selected == x);
+
+        if index.is_none() {
+            return available[0];
+        }
+
+        let index = index.unwrap();
+
+        return available[(index + available.len() - 1) % available.len()];
     }
 }
 

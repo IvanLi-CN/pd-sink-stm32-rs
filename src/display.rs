@@ -4,6 +4,7 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, pubsub::Subscri
 use embedded_graphics::{pixelcolor::Rgb565, prelude::WebColors};
 use embedded_hal::digital::OutputPin;
 use embedded_hal_async::spi::SpiDevice;
+use husb238::{SrcPdo, Voltage};
 use st7789::ST7789;
 
 use crate::{
@@ -12,10 +13,11 @@ use crate::{
         GROTESK_24_48_INDEX,
     },
     shared::{
-        COLOR_AMPERAGE, COLOR_BACKGROUND, COLOR_BASE, COLOR_PRIMARY, COLOR_PRIMARY_CONTENT,
-        COLOR_TEXT, COLOR_VOLTAGE, COLOR_WATTAGE, PAGE_PUBSUB,
+        AVAILABLE_VOLT_CURR_MUTEX, COLOR_AMPERAGE, COLOR_BACKGROUND, COLOR_BASE, COLOR_ERROR, COLOR_PRIMARY, COLOR_PRIMARY_CONTENT, COLOR_TEXT, COLOR_TEXT_DISABLED, COLOR_VOLTAGE, COLOR_WATTAGE, PAGE_PUBSUB
     },
-    types::{Page, PowerInfo, SettingItem, StatusInfo, SETTING_ITEMS},
+    types::{
+        AvailableVoltCurr, Page, PowerInfo, SettingItem, StatusInfo, SETTING_ITEMS, VOLTAGE_ITEMS,
+    },
 };
 
 pub struct Display<'a, SPI, DC, RST>
@@ -203,15 +205,15 @@ where
     }
 
     pub async fn update_layout(&mut self) {
-        self.st7789
-            .fill_color(COLOR_BACKGROUND)
-            .await
-            .unwrap();
+        self.st7789.fill_color(COLOR_BACKGROUND).await.unwrap();
 
         match self.page {
             Page::Monitor => self.update_monitor_layout().await,
             Page::Setting(setting_item) => self.update_setting_layout(setting_item).await,
-            Page::Voltage => self.update_monitor_layout().await,
+            Page::Voltage(selected) => {
+                self.update_setting_layout(SettingItem::Voltage).await;
+                self.update_voltage_layout(selected).await;
+            },
             Page::UVP => self.update_monitor_layout().await,
             Page::OCP => self.update_monitor_layout().await,
             Page::About => {
@@ -328,7 +330,7 @@ where
             };
 
             let x = 10;
-            let y = (i as u16) * 38 + 10;
+            let y = (i as u16) * 34;
 
             Self::render_status(
                 &mut self.st7789,
@@ -387,6 +389,68 @@ where
             7,
         )
         .await;
+    }
+
+    pub async fn update_voltage_layout(&mut self, selected: SrcPdo) {
+        defmt::info!("selected: {:?}", selected);
+
+        let available_volt_curr = AVAILABLE_VOLT_CURR_MUTEX.lock().await;
+
+        let offset = VOLTAGE_ITEMS
+            .iter()
+            .enumerate()
+            .find(|(_, ele)| **ele == selected)
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+
+        for i in 0..VOLTAGE_ITEMS.len().min(5) {
+            let idx = (offset + i + VOLTAGE_ITEMS.len() - 2) % VOLTAGE_ITEMS.len();
+            let item = VOLTAGE_ITEMS[idx];
+
+            let (color, bg_color) = if item == selected {
+                (COLOR_PRIMARY_CONTENT, COLOR_PRIMARY)
+            } else {
+                let available = match item {
+                    SrcPdo::_5v => true,
+                    SrcPdo::_9v => available_volt_curr._9v.is_some(),
+                    SrcPdo::_12v => available_volt_curr._12v.is_some(),
+                    SrcPdo::_15v => available_volt_curr._15v.is_some(),
+                    SrcPdo::_18v => available_volt_curr._18v.is_some(),
+                    SrcPdo::_20v => available_volt_curr._20v.is_some(),
+                    _ => false,
+                };
+
+                if available {
+                    (COLOR_TEXT, COLOR_BACKGROUND)
+                } else {
+                    (COLOR_TEXT_DISABLED, COLOR_BACKGROUND)
+                }
+            };
+
+            let text = match item {
+                SrcPdo::_5v => "  5V  ",
+                SrcPdo::_9v => "  9V  ",
+                SrcPdo::_12v => " 12V  ",
+                SrcPdo::_15v => " 15V  ",
+                SrcPdo::_18v => " 18V  ",
+                SrcPdo::_20v => " 20V  ",
+                _ => "MISSING",
+            };
+
+            let x = 170;
+            let y = (i as u16) * 38;
+
+            Self::render_status(
+                &mut self.st7789,
+                text,
+                x,
+                y,
+                bg_color,
+                color,
+                text.len() as u16,
+            )
+            .await;
+        }
     }
 
     pub async fn task(&mut self) {

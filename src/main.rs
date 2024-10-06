@@ -4,7 +4,10 @@
 use button::Button;
 use controller::Controller;
 use display::Display;
-use embassy_embedded_hal::shared_bus::asynch::{i2c::I2cDevice, spi::SpiDevice};
+use embassy_embedded_hal::shared_bus::{
+    asynch::{i2c::I2cDevice, spi::SpiDevice},
+    I2cDeviceError,
+};
 use embassy_executor::Spawner;
 use embassy_futures::select::{select3, Either3};
 use embassy_stm32::{
@@ -12,7 +15,7 @@ use embassy_stm32::{
     exti::ExtiInput,
     gpio::{Input, Level, Output, OutputType, Pull, Speed},
     i2c::{self, I2c},
-    peripherals::{self, PB0, PC14},
+    peripherals::{self, DMA1_CH3, DMA1_CH4, I2C1, PB0, PC14},
     spi::{self, Spi},
     time::{khz, Hertz},
     timer::simple_pwm::{PwmPin, SimplePwm},
@@ -21,15 +24,17 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 
 use defmt_rtt as _;
 use embassy_time::{Duration, Ticker};
-use husb238::Husb238;
+use husb238::{Command, Husb238};
 use ina226::{DEFAULT_ADDRESS, INA226};
 // global logger
 use panic_probe as _;
 
-use shared::{BTN_A_STATE_CHANNEL, BTN_B_STATE_CHANNEL, DISPLAY};
+use shared::{
+    AVAILABLE_VOLT_CURR_MUTEX, BTN_A_STATE_CHANNEL, BTN_B_STATE_CHANNEL, DISPLAY, PDO_PUBSUB,
+};
 use st7789::{self, ST7789};
 use static_cell::StaticCell;
-use types::{ST7789Display, SpiBus};
+use types::{AvailableVoltCurr, ST7789Display, SpiBus};
 
 mod button;
 mod controller;
@@ -39,6 +44,9 @@ mod shared;
 mod types;
 
 static SPI_BUS_MUTEX: StaticCell<Mutex<CriticalSectionRawMutex, SpiBus>> = StaticCell::new();
+static HUSB238_I2C_MUTEX: StaticCell<
+    Mutex<CriticalSectionRawMutex, I2c<'_, I2C1, DMA1_CH3, DMA1_CH4>>,
+> = StaticCell::new();
 
 bind_interrupts!(struct Irqs {
     I2C1 => i2c::EventInterruptHandler<peripherals::I2C1>, i2c::ErrorInterruptHandler<peripherals::I2C1>;
@@ -115,6 +123,7 @@ async fn main(spawner: Spawner) {
     );
 
     let i2c: Mutex<CriticalSectionRawMutex, _> = Mutex::new(i2c);
+    let i2c = HUSB238_I2C_MUTEX.init(i2c);
 
     // init ina226
 
@@ -142,8 +151,16 @@ async fn main(spawner: Spawner) {
 
     out_ctl_pin.set_high();
 
-    let i2c_dev = I2cDevice::new(&i2c);
+    let i2c_dev = I2cDevice::new(i2c);
     let mut husb238 = Husb238::new(i2c_dev);
+
+    {
+        let mut available_volt_curr = AVAILABLE_VOLT_CURR_MUTEX.lock().await;
+
+        *available_volt_curr = get_available_volt_curr(&mut husb238).await.unwrap();
+    }
+
+    let mut pdo_sub = PDO_PUBSUB.subscriber().unwrap();
 
     let mut count = 0u8;
 
@@ -184,9 +201,30 @@ async fn main(spawner: Spawner) {
             }
         }
 
-        count += 1;
-        if count < 10 {
-            continue;
+        let changed_pdo = pdo_sub.try_next_message_pure();
+
+        if changed_pdo.is_none() {
+            count += 1;
+            if count < 10 {
+                continue;
+            }
+        } else {
+            match husb238.set_src_pdo(changed_pdo.unwrap()).await {
+                Ok(_) => {
+                    match husb238.go_command(Command::Request).await {
+                        Ok(_) => {
+                            count = 0;
+                        },
+                        Err(_) => {
+                            defmt::error!("go command error");
+                        }
+                    }
+                    defmt::info!("set src_pdo: {:?}", changed_pdo.unwrap());
+                },
+                Err(_) => {
+                    defmt::error!("set src_pdo error");
+                }
+            }
         }
 
         count = 0;
@@ -196,11 +234,28 @@ async fn main(spawner: Spawner) {
                 display.update_target_volts(volts.unwrap_or(0.0)).await;
                 display.update_limit_amps(amps).await;
             }
-            Err(_) => {}
+            Err(_) => {
+                defmt::error!("get actual voltage and current error");
+            }
         }
 
         // Timer::after(Duration::from_millis(1000)).await;
     }
+}
+
+async fn get_available_volt_curr<'a>(
+    husb238: &mut Husb238<
+        I2cDevice<'a, CriticalSectionRawMutex, I2c<'static, I2C1, DMA1_CH3, DMA1_CH4>>,
+    >,
+) -> Result<AvailableVoltCurr, I2cDeviceError<i2c::Error>> {
+    Ok(AvailableVoltCurr {
+        _5v: husb238.get_5v_status().await?,
+        _9v: husb238.get_9v_status().await?,
+        _12v: husb238.get_12v_status().await?,
+        _15v: husb238.get_15v_status().await?,
+        _18v: husb238.get_18v_status().await?,
+        _20v: husb238.get_20v_status().await?,
+    })
 }
 
 #[embassy_executor::task]
