@@ -13,9 +13,9 @@ use crate::{
         GROTESK_24_48_INDEX,
     },
     shared::{
-        AVAILABLE_VOLT_CURR_MUTEX, COLOR_AMPERAGE, COLOR_BACKGROUND, COLOR_BASE, COLOR_PRIMARY,
-        COLOR_PRIMARY_CONTENT, COLOR_TEXT, COLOR_TEXT_DISABLED, COLOR_VOLTAGE, COLOR_WATTAGE,
-        DISPLAY_DIRECTION_PUBSUB, PAGE_PUBSUB,
+        AVAILABLE_VOLT_CURR_MUTEX, COLOR_AMPERAGE, COLOR_BACKGROUND, COLOR_BASE, COLOR_ON_TEXT,
+        COLOR_PRIMARY, COLOR_PRIMARY_CONTENT, COLOR_TEXT, COLOR_TEXT_DISABLED, COLOR_VOLTAGE,
+        COLOR_WATTAGE, DISPLAY_DIRECTION_PUBSUB, OUTPUT_PUBSUB, PAGE_PUBSUB,
     },
     types::{Direction, Page, PowerInfo, SettingItem, StatusInfo, SETTING_ITEMS, VOLTAGE_ITEMS},
 };
@@ -35,9 +35,11 @@ where
 
     page: Page,
     direction: Direction,
+    output: bool,
 
-    page_pubsub: Subscriber<'a, CriticalSectionRawMutex, Page, 2, 2, 1>,
-    direction_pubsub: Subscriber<'a, CriticalSectionRawMutex, Direction, 2, 2, 1>,
+    page_sub: Subscriber<'a, CriticalSectionRawMutex, Page, 2, 2, 1>,
+    direction_sub: Subscriber<'a, CriticalSectionRawMutex, Direction, 2, 2, 1>,
+    output_sub: Subscriber<'a, CriticalSectionRawMutex, bool, 2, 2, 1>,
 }
 
 impl<'a, SPI, DC, RST> Display<'a, SPI, DC, RST>
@@ -57,9 +59,11 @@ where
 
             page: Page::Monitor,
             direction: Direction::Normal,
+            output: false,
 
-            page_pubsub: PAGE_PUBSUB.subscriber().unwrap(),
-            direction_pubsub: DISPLAY_DIRECTION_PUBSUB.subscriber().unwrap(),
+            page_sub: PAGE_PUBSUB.subscriber().unwrap(),
+            direction_sub: DISPLAY_DIRECTION_PUBSUB.subscriber().unwrap(),
+            output_sub: OUTPUT_PUBSUB.subscriber().unwrap(),
         }
     }
 
@@ -75,14 +79,6 @@ where
             .map_err(|_| ())?;
 
         self.update_layout().await;
-
-        self.update_monitor_amps(0.0).await;
-        self.update_monitor_volts(0.0).await;
-        self.update_monitor_watts(0.0).await;
-
-        self.update_target_volts(0.0).await;
-        self.update_limit_amps(0.0).await;
-        self.update_output(false).await;
 
         self.force_render = false;
         Ok(())
@@ -165,6 +161,10 @@ where
             return;
         }
 
+        if self.status_info.target_volts == volts && !self.force_render {
+            return;
+        }
+
         self.status_info.target_volts = volts;
 
         let curr = self.ryu_buffer.format(self.status_info.target_volts);
@@ -183,6 +183,10 @@ where
 
     pub async fn update_limit_amps(&mut self, amps: f64) {
         if !matches!(self.page, Page::Monitor) {
+            return;
+        }
+
+        if self.status_info.limit_amps == amps && !self.force_render {
             return;
         }
 
@@ -207,15 +211,19 @@ where
             return;
         }
 
+        if self.output == output && !self.force_render {
+            return;
+        }
+
         self.status_info.output = output;
 
         Self::render_status(
             &mut self.st7789,
-            if output { "ON" } else { "OFF" },
+            if output { "ON " } else { "OFF" },
             210,
             135,
             COLOR_BACKGROUND,
-            COLOR_TEXT,
+            if output { COLOR_ON_TEXT } else { COLOR_TEXT },
             3,
         )
         .await;
@@ -227,13 +235,18 @@ where
         match self.page {
             Page::Monitor => {
                 self.update_monitor_layout().await;
+
                 self.force_render = true;
-                self.update_monitor_amps(0.0).await;
-                self.update_monitor_volts(0.0).await;
-                self.update_monitor_watts(0.0).await;
-                self.update_target_volts(0.0).await;
-                self.update_limit_amps(0.0).await;
-                self.update_output(false).await;
+
+                self.update_monitor_amps(self.power_info.amps).await;
+                self.update_monitor_volts(self.power_info.volts).await;
+                self.update_monitor_watts(self.power_info.watts).await;
+
+                self.update_target_volts(self.status_info.target_volts)
+                    .await;
+                self.update_limit_amps(self.status_info.limit_amps).await;
+                self.update_output(self.output).await;
+
                 self.force_render = false;
             }
             Page::Setting(setting_item) => self.update_setting_layout(setting_item).await,
@@ -481,7 +494,7 @@ where
     }
 
     pub async fn task(&mut self) {
-        let direction = self.direction_pubsub.try_next_message_pure();
+        let direction = self.direction_sub.try_next_message_pure();
 
         if let Some(direction) = direction {
             self.direction = direction;
@@ -489,12 +502,19 @@ where
             self.reinit().await.unwrap();
         }
 
-        let page = self.page_pubsub.try_next_message_pure();
+        let page = self.page_sub.try_next_message_pure();
 
         if let Some(page) = page {
             self.page = page;
 
             self.update_layout().await;
+        }
+
+        let output = self.output_sub.try_next_message_pure();
+
+        if let Some(output) = output {
+            self.update_output(output).await;
+            self.output = output;
         }
     }
 

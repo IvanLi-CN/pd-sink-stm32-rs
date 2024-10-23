@@ -19,6 +19,7 @@ use defmt_rtt as _;
 use embassy_time::{Duration, Ticker};
 use husb238::{Command, Husb238};
 use ina226::{DEFAULT_ADDRESS, INA226};
+use output_controler::OutputController;
 // global logger
 use panic_probe as _;
 
@@ -35,6 +36,7 @@ mod display;
 mod font;
 mod shared;
 mod types;
+mod output_controler;
 
 static SPI_BUS_MUTEX: StaticCell<Mutex<CriticalSectionRawMutex, SpiBus>> = StaticCell::new();
 static HUSB238_I2C_MUTEX: StaticCell<
@@ -53,7 +55,8 @@ async fn main(spawner: Spawner) {
 
     defmt::println!("Hello, world!");
 
-    let mut out_ctl_pin = Output::new(p.PA8, Level::Low, Speed::Low);
+    let out_ctl_pin = Output::new(p.PA8, Level::Low, Speed::Low);
+    let mut output_controller = OutputController::new(out_ctl_pin);
 
     let mut config = spi::Config::default();
     config.frequency = Hertz(16_000_000);
@@ -139,8 +142,6 @@ async fn main(spawner: Spawner) {
     spawner.spawn(controller_exec()).ok();
     spawner.spawn(btns_exec(button_a, button_b)).ok();
 
-    out_ctl_pin.set_high();
-
     let i2c_dev = I2cDevice::new(i2c);
     let mut husb238 = Husb238::new(i2c_dev);
 
@@ -162,6 +163,7 @@ async fn main(spawner: Spawner) {
         }
         let display = display.as_mut().unwrap();
 
+        output_controller.task().await;
         display.task().await;
 
         match ina226.bus_voltage_millivolts().await {

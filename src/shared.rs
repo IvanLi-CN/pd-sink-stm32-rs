@@ -32,6 +32,7 @@ pub const COLOR_AMPERAGE: Rgb565 = WebColors::CSS_ORANGE_RED;
 pub const COLOR_WATTAGE: Rgb565 = WebColors::CSS_FOREST_GREEN;
 pub const COLOR_ERROR: Rgb565 = WebColors::CSS_DARK_RED;
 pub const COLOR_INFO: Rgb565 = WebColors::CSS_STEEL_BLUE;
+pub const COLOR_ON_TEXT: Rgb565 = WebColors::CSS_FOREST_GREEN;
 
 pub static DISPLAY: Mutex<
     CriticalSectionRawMutex,
@@ -68,6 +69,10 @@ pub(crate) static DISPLAY_DIRECTION_MUTEX: Mutex<CriticalSectionRawMutex, Direct
 pub(crate) static OCP_MUTEX: Mutex<CriticalSectionRawMutex, f64> = Mutex::new(0.0);
 pub(crate) static UVP_MUTEX: Mutex<CriticalSectionRawMutex, f64> = Mutex::new(0.0);
 pub(crate) static PDO_MUTEX: Mutex<CriticalSectionRawMutex, SrcPdo> = Mutex::new(SrcPdo::_5v);
+
+pub(crate) static OUTPUT_PUBSUB: PubSubChannel<CriticalSectionRawMutex, bool, 2, 2, 1> =
+    PubSubChannel::new();
+pub(crate) static OUTPUT_MUTEX: Mutex<CriticalSectionRawMutex, bool> = Mutex::new(false);
 
 pub(crate) static AVAILABLE_VOLT_CURR_MUTEX: Mutex<CriticalSectionRawMutex, AvailableVoltCurr> =
     Mutex::new(AvailableVoltCurr::default());

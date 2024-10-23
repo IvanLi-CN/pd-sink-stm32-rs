@@ -7,11 +7,7 @@ use husb238::{SrcPdo, Voltage};
 use crate::{
     button::ButtonState,
     shared::{
-        get_available_voltages, AVAILABLE_VOLT_CURR_MUTEX, BACKLIGHT_MUTEX, BACKLIGHT_PUBSUB,
-        BTN_A_STATE_CHANNEL, BTN_B_STATE_CHANNEL, DISPLAY_DIRECTION_MUTEX,
-        DISPLAY_DIRECTION_PUBSUB, MAX_SIMULTANEOUS_PRESS_DELAY, OCP_MAX, OCP_MUTEX, OCP_PUBSUB,
-        PAGE_MUTEX, PAGE_PUBSUB, PDO_MUTEX, PDO_PUBSUB, SELECTED_VOLTAGE_MUTEX, UVP_MUTEX,
-        UVP_PUBSUB,
+        get_available_voltages, AVAILABLE_VOLT_CURR_MUTEX, BACKLIGHT_MUTEX, BACKLIGHT_PUBSUB, BTN_A_STATE_CHANNEL, BTN_B_STATE_CHANNEL, DISPLAY_DIRECTION_MUTEX, DISPLAY_DIRECTION_PUBSUB, MAX_SIMULTANEOUS_PRESS_DELAY, OCP_MAX, OCP_MUTEX, OCP_PUBSUB, OUTPUT_MUTEX, OUTPUT_PUBSUB, PAGE_MUTEX, PAGE_PUBSUB, PDO_MUTEX, PDO_PUBSUB, SELECTED_VOLTAGE_MUTEX, UVP_MUTEX, UVP_PUBSUB
     },
     types::{Direction, Page, SettingItem, SETTING_ITEMS},
 };
@@ -37,6 +33,7 @@ pub struct Controller<'a> {
     ocp_pubsub: ImmediatePublisher<'a, CriticalSectionRawMutex, f64, 2, 2, 1>,
     uvp_pubsub: ImmediatePublisher<'a, CriticalSectionRawMutex, f64, 2, 2, 1>,
     pdo_pubsub: ImmediatePublisher<'a, CriticalSectionRawMutex, SrcPdo, 2, 2, 1>,
+    output_pubsub: ImmediatePublisher<'a, CriticalSectionRawMutex, bool, 2, 2, 1>,
 }
 
 impl<'a> Controller<'a> {
@@ -50,6 +47,7 @@ impl<'a> Controller<'a> {
             ocp_pubsub: OCP_PUBSUB.immediate_publisher(),
             uvp_pubsub: UVP_PUBSUB.immediate_publisher(),
             pdo_pubsub: PDO_PUBSUB.immediate_publisher(),
+            output_pubsub: OUTPUT_PUBSUB.immediate_publisher(),
         }
     }
 
@@ -212,7 +210,7 @@ impl<'a> Controller<'a> {
                     self.display_direction_pubsub.publish_immediate(_direction);
                 }
                 BtnsState::UpAndDown => {
-                    *page = Page::OCP;
+                    *page = Page::Setting(SettingItem::Voltage);
 
                     let _page = *page;
 
@@ -221,13 +219,15 @@ impl<'a> Controller<'a> {
                     self.page_pubsub.publish_immediate(_page);
                 }
                 BtnsState::UpAndDownLong => {
-                    *page = Page::Setting(SettingItem::Voltage);
+                    let mut output = OUTPUT_MUTEX.lock().await;
 
-                    let _page = *page;
+                    if *output {
+                        *output = false;
+                    } else {
+                        *output = true;
+                    }
 
-                    drop(page);
-
-                    self.page_pubsub.publish_immediate(_page);
+                    self.output_pubsub.publish_immediate(*output);
                 }
             },
             Page::Setting(item) => match btns {
