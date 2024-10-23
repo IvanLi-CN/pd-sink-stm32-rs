@@ -11,14 +11,7 @@ use embassy_embedded_hal::shared_bus::{
 use embassy_executor::Spawner;
 use embassy_futures::select::{select3, Either3};
 use embassy_stm32::{
-    bind_interrupts,
-    exti::ExtiInput,
-    gpio::{Input, Level, Output, OutputType, Pull, Speed},
-    i2c::{self, I2c},
-    peripherals::{self, DMA1_CH3, DMA1_CH4, I2C1, PB0, PC14},
-    spi::{self, Spi},
-    time::{khz, Hertz},
-    timer::simple_pwm::{PwmPin, SimplePwm},
+    bind_interrupts, exti::ExtiInput, gpio::{Level, Output, OutputType, Pull, Speed}, i2c::{self, I2c}, mode, peripherals, spi::{self, Spi}, time::{khz, Hertz}, timer::simple_pwm::{PwmPin, SimplePwm}
 };
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 
@@ -45,7 +38,7 @@ mod types;
 
 static SPI_BUS_MUTEX: StaticCell<Mutex<CriticalSectionRawMutex, SpiBus>> = StaticCell::new();
 static HUSB238_I2C_MUTEX: StaticCell<
-    Mutex<CriticalSectionRawMutex, I2c<'_, I2C1, DMA1_CH3, DMA1_CH4>>,
+    Mutex<CriticalSectionRawMutex, I2c<'_, mode::Async>>,
 > = StaticCell::new();
 
 bind_interrupts!(struct Irqs {
@@ -64,7 +57,7 @@ async fn main(spawner: Spawner) {
 
     let mut config = spi::Config::default();
     config.frequency = Hertz(16_000_000);
-    let spi = Spi::new_txonly(p.SPI1, p.PA5, p.PA7, p.DMA1_CH1, p.DMA1_CH2, config); // SCK is unused.
+    let spi = Spi::new_txonly(p.SPI1, p.PA5, p.PA7, p.DMA1_CH1, config); // SCK is unused.
     let spi: Mutex<CriticalSectionRawMutex, _> = Mutex::new(spi);
     let spi = SPI_BUS_MUTEX.init(spi);
 
@@ -102,14 +95,11 @@ async fn main(spawner: Spawner) {
         Some(blk_pin),
         None,
         khz(1),
-        embassy_stm32::timer::CountingMode::EdgeAlignedUp,
+        embassy_stm32::timer::low_level::CountingMode::EdgeAlignedUp,
     );
 
-    blk_tim.enable(embassy_stm32::timer::Channel::Ch3);
-    blk_tim.set_duty(
-        embassy_stm32::timer::Channel::Ch3,
-        blk_tim.get_max_duty() / 2,
-    );
+    blk_tim.ch3().enable();
+    blk_tim.ch3().set_duty_cycle_percent(50);
 
     let i2c = I2c::new(
         p.I2C1,
@@ -143,8 +133,8 @@ async fn main(spawner: Spawner) {
 
     // init buttons
 
-    let button_a = ExtiInput::new(Input::new(p.PC14, Pull::Up), p.EXTI14);
-    let button_b = ExtiInput::new(Input::new(p.PB0, Pull::Up), p.EXTI0);
+    let button_a = ExtiInput::new(p.PC14, p.EXTI14, Pull::Up);
+    let button_b = ExtiInput::new(p.PB0, p.EXTI0, Pull::Up);
 
     spawner.spawn(controller_exec()).ok();
     spawner.spawn(btns_exec(button_a, button_b)).ok();
@@ -245,7 +235,7 @@ async fn main(spawner: Spawner) {
 
 async fn get_available_volt_curr<'a>(
     husb238: &mut Husb238<
-        I2cDevice<'a, CriticalSectionRawMutex, I2c<'static, I2C1, DMA1_CH3, DMA1_CH4>>,
+        I2cDevice<'a, CriticalSectionRawMutex, I2c<'static, mode::Async>>,
     >,
 ) -> Result<AvailableVoltCurr, I2cDeviceError<i2c::Error>> {
     Ok(AvailableVoltCurr {
@@ -259,7 +249,7 @@ async fn get_available_volt_curr<'a>(
 }
 
 #[embassy_executor::task]
-async fn btns_exec(mut btn_a: ExtiInput<'static, PC14>, mut btn_b: ExtiInput<'static, PB0>) {
+async fn btns_exec(mut btn_a: ExtiInput<'static>, mut btn_b: ExtiInput<'static>) {
     let mut button_a = Button::new(&BTN_A_STATE_CHANNEL);
     let mut button_b = Button::new(&BTN_B_STATE_CHANNEL);
 

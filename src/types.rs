@@ -1,8 +1,8 @@
 use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
-use embassy_stm32::peripherals;
+use embassy_stm32::mode;
 use embassy_stm32::{gpio::Output, spi::Spi};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use husb238::{Current, SrcPdo, Voltage};
+use husb238::{Current, SrcPdo};
 use st7789::ST7789;
 
 #[derive(Debug, Clone, Copy, defmt::Format)]
@@ -40,11 +40,11 @@ impl Default for StatusInfo {
 }
 
 pub(crate) type SpiBus =
-    Spi<'static, peripherals::SPI1, peripherals::DMA1_CH1, peripherals::DMA1_CH2>;
+    Spi<'static, mode::Async>;
 
-pub(crate) type ST7789CSPin = Output<'static, embassy_stm32::peripherals::PA4>;
-pub(crate) type ST7789DCPin = Output<'static, embassy_stm32::peripherals::PA15>;
-pub(crate) type ST7789RstPin = Output<'static, embassy_stm32::peripherals::PA12>;
+pub(crate) type ST7789CSPin = Output<'static>;
+pub(crate) type ST7789DCPin = Output<'static>;
+pub(crate) type ST7789RstPin = Output<'static>;
 
 pub(crate) type ST7789SpiDev = SpiDevice<'static, CriticalSectionRawMutex, SpiBus, ST7789CSPin>;
 

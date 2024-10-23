@@ -7,4 +7,4 @@ edition = "2021"
 embedded-hal-async = "1.0.0"
 embedded-hal = "1.0.0"
 embedded-graphics-core = "0.4"
-embassy-time = { version = "0.3.2", features = ["defmt"] }
+embassy-time = { git = "https://github.com/embassy-rs/embassy.git", branch = "main", features = ["defmt"] }
