@@ -15,9 +15,9 @@ use crate::{
     shared::{
         AVAILABLE_VOLT_CURR_MUTEX, COLOR_AMPERAGE, COLOR_BACKGROUND, COLOR_BASE, COLOR_PRIMARY,
         COLOR_PRIMARY_CONTENT, COLOR_TEXT, COLOR_TEXT_DISABLED, COLOR_VOLTAGE, COLOR_WATTAGE,
-        PAGE_PUBSUB,
+        DISPLAY_DIRECTION_PUBSUB, PAGE_PUBSUB,
     },
-    types::{Page, PowerInfo, SettingItem, StatusInfo, SETTING_ITEMS, VOLTAGE_ITEMS},
+    types::{Direction, Page, PowerInfo, SettingItem, StatusInfo, SETTING_ITEMS, VOLTAGE_ITEMS},
 };
 
 pub struct Display<'a, SPI, DC, RST>
@@ -34,8 +34,10 @@ where
     force_render: bool,
 
     page: Page,
+    direction: Direction,
 
     page_pubsub: Subscriber<'a, CriticalSectionRawMutex, Page, 2, 2, 1>,
+    direction_pubsub: Subscriber<'a, CriticalSectionRawMutex, Direction, 2, 2, 1>,
 }
 
 impl<'a, SPI, DC, RST> Display<'a, SPI, DC, RST>
@@ -54,14 +56,23 @@ where
             force_render: true,
 
             page: Page::Monitor,
+            direction: Direction::Normal,
+
             page_pubsub: PAGE_PUBSUB.subscriber().unwrap(),
+            direction_pubsub: DISPLAY_DIRECTION_PUBSUB.subscriber().unwrap(),
         }
     }
 
-    pub async fn init(&mut self) -> Result<(), ()> {
+    async fn reinit(&mut self) -> Result<(), ()> {
         self.force_render = true;
 
-        self.st7789.init().await.map_err(|_| ())?;
+        self.st7789
+            .set_orientation(match self.direction {
+                Direction::Normal => st7789::Orientation::Landscape,
+                Direction::Reversed => st7789::Orientation::LandscapeSwapped,
+            })
+            .await
+            .map_err(|_| ())?;
 
         self.update_layout().await;
 
@@ -75,6 +86,12 @@ where
 
         self.force_render = false;
         Ok(())
+    }
+
+    pub async fn init(&mut self) -> Result<(), ()> {
+        self.st7789.init().await.map_err(|_| ())?;
+
+        self.reinit().await
     }
 
     pub async fn update_monitor_volts(&mut self, volts: f64) {
@@ -464,6 +481,14 @@ where
     }
 
     pub async fn task(&mut self) {
+        let direction = self.direction_pubsub.try_next_message_pure();
+
+        if let Some(direction) = direction {
+            self.direction = direction;
+
+            self.reinit().await.unwrap();
+        }
+
         let page = self.page_pubsub.try_next_message_pure();
 
         if let Some(page) = page {
