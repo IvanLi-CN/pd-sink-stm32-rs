@@ -56,7 +56,7 @@ pub(crate) enum Page {
     Setting(SettingItem),
     Voltage(SrcPdo),
     UVP,
-    OCP,
+    OCP(f64),
     About,
 }
 
@@ -111,4 +111,20 @@ pub(crate) static VOLTAGE_ITEMS: &[SrcPdo] = &[
     SrcPdo::_15v,
     SrcPdo::_18v,
     SrcPdo::_20v,
+];
+
+pub(crate) static OCP_ITEMS: &[f64] = &[
+    0.1,
+    0.2,
+    0.5,
+    0.75,
+    1.0,
+    1.5,
+    2.0,
+    2.5,
+    3.0,
+    3.5,
+    4.0,
+    4.5,
+    5.0,
 ];

@@ -11,7 +11,14 @@ use embassy_embedded_hal::shared_bus::{
 use embassy_executor::Spawner;
 use embassy_futures::select::{select3, Either3};
 use embassy_stm32::{
-    bind_interrupts, exti::ExtiInput, gpio::{Level, Output, OutputType, Pull, Speed}, i2c::{self, I2c}, mode, peripherals, spi::{self, Spi}, time::{khz, Hertz}, timer::simple_pwm::{PwmPin, SimplePwm}
+    bind_interrupts,
+    exti::ExtiInput,
+    gpio::{Level, Output, OutputType, Pull, Speed},
+    i2c::{self, I2c},
+    mode, peripherals,
+    spi::{self, Spi},
+    time::{khz, Hertz},
+    timer::simple_pwm::{PwmPin, SimplePwm},
 };
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 
@@ -24,7 +31,8 @@ use output_controler::OutputController;
 use panic_probe as _;
 
 use shared::{
-    AVAILABLE_VOLT_CURR_MUTEX, BTN_A_STATE_CHANNEL, BTN_B_STATE_CHANNEL, DISPLAY, PDO_PUBSUB,
+    AVAILABLE_VOLT_CURR_MUTEX, BTN_A_STATE_CHANNEL, BTN_B_STATE_CHANNEL, DISPLAY, OCP_MUTEX,
+    PDO_PUBSUB,
 };
 use st7789::{self, ST7789};
 use static_cell::StaticCell;
@@ -34,14 +42,13 @@ mod button;
 mod controller;
 mod display;
 mod font;
+mod output_controler;
 mod shared;
 mod types;
-mod output_controler;
 
 static SPI_BUS_MUTEX: StaticCell<Mutex<CriticalSectionRawMutex, SpiBus>> = StaticCell::new();
-static HUSB238_I2C_MUTEX: StaticCell<
-    Mutex<CriticalSectionRawMutex, I2c<'_, mode::Async>>,
-> = StaticCell::new();
+static HUSB238_I2C_MUTEX: StaticCell<Mutex<CriticalSectionRawMutex, I2c<'_, mode::Async>>> =
+    StaticCell::new();
 
 bind_interrupts!(struct Irqs {
     I2C1 => i2c::EventInterruptHandler<peripherals::I2C1>, i2c::ErrorInterruptHandler<peripherals::I2C1>;
@@ -177,7 +184,15 @@ async fn main(spawner: Spawner) {
 
         match ina226.current_amps().await {
             Ok(val) => {
-                display.update_monitor_amps(val.unwrap_or(0.0)).await;
+                let ocp = OCP_MUTEX.lock().await;
+                let amps = val.unwrap_or(0.0);
+
+                if amps > *ocp {
+                    output_controller.set_output(false).await;
+                    display.update_monitor_amps(amps).await;
+                } else {
+                    display.update_monitor_amps(amps).await;
+                }
             }
             Err(_) => {
                 display.update_monitor_amps(99999.99999).await;
@@ -206,13 +221,13 @@ async fn main(spawner: Spawner) {
                     match husb238.go_command(Command::Request).await {
                         Ok(_) => {
                             count = 0;
-                        },
+                        }
                         Err(_) => {
                             defmt::error!("go command error");
                         }
                     }
                     defmt::info!("set src_pdo: {:?}", changed_pdo.unwrap());
-                },
+                }
                 Err(_) => {
                     defmt::error!("set src_pdo error");
                 }
@@ -236,9 +251,7 @@ async fn main(spawner: Spawner) {
 }
 
 async fn get_available_volt_curr<'a>(
-    husb238: &mut Husb238<
-        I2cDevice<'a, CriticalSectionRawMutex, I2c<'static, mode::Async>>,
-    >,
+    husb238: &mut Husb238<I2cDevice<'a, CriticalSectionRawMutex, I2c<'static, mode::Async>>>,
 ) -> Result<AvailableVoltCurr, I2cDeviceError<i2c::Error>> {
     Ok(AvailableVoltCurr {
         _5v: husb238.get_5v_status().await?,

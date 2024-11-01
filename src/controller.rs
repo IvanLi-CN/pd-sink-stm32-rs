@@ -7,9 +7,13 @@ use husb238::{SrcPdo, Voltage};
 use crate::{
     button::ButtonState,
     shared::{
-        get_available_voltages, AVAILABLE_VOLT_CURR_MUTEX, BACKLIGHT_MUTEX, BACKLIGHT_PUBSUB, BTN_A_STATE_CHANNEL, BTN_B_STATE_CHANNEL, DISPLAY_DIRECTION_MUTEX, DISPLAY_DIRECTION_PUBSUB, MAX_SIMULTANEOUS_PRESS_DELAY, OCP_MAX, OCP_MUTEX, OCP_PUBSUB, OUTPUT_MUTEX, OUTPUT_PUBSUB, PAGE_MUTEX, PAGE_PUBSUB, PDO_MUTEX, PDO_PUBSUB, SELECTED_VOLTAGE_MUTEX, UVP_MUTEX, UVP_PUBSUB
+        get_available_voltages, BACKLIGHT_MUTEX, BACKLIGHT_PUBSUB, BTN_A_STATE_CHANNEL,
+        BTN_B_STATE_CHANNEL, DISPLAY_DIRECTION_MUTEX, DISPLAY_DIRECTION_PUBSUB,
+        MAX_SIMULTANEOUS_PRESS_DELAY, OCP_MAX, OCP_MUTEX, OCP_PUBSUB, OUTPUT_MUTEX,
+        OUTPUT_PUBSUB, PAGE_MUTEX, PAGE_PUBSUB, PDO_MUTEX, PDO_PUBSUB, SELECTED_VOLTAGE_MUTEX,
+        UVP_MUTEX, UVP_PUBSUB,
     },
-    types::{Direction, Page, SettingItem, SETTING_ITEMS},
+    types::{Direction, Page, SettingItem, OCP_ITEMS, SETTING_ITEMS},
 };
 
 #[derive(PartialEq, Clone, Copy, Debug, defmt::Format)]
@@ -273,7 +277,10 @@ impl<'a> Controller<'a> {
                             Page::Voltage(*selected_volt)
                         }
                         SettingItem::UVP => Page::UVP,
-                        SettingItem::OCP => Page::OCP,
+                        SettingItem::OCP => {
+                            let selected_ocp = OCP_MUTEX.lock().await;
+                            Page::OCP(*selected_ocp)
+                        }
                         SettingItem::About => Page::About,
                     };
 
@@ -392,36 +399,26 @@ impl<'a> Controller<'a> {
                 }
                 _ => {}
             },
-            Page::OCP => match btns {
+            Page::OCP(selected) => match btns {
                 BtnsState::Up => {
-                    let mut ocp = OCP_MUTEX.lock().await;
+                    let selected = self.up_ocp(selected).await;
+                    *page = Page::OCP(selected);
 
-                    if *ocp > OCP_MAX {
-                        *ocp = 10.0;
-                    } else {
-                        *ocp += 0.25;
-                    }
+                    let _page = *page;
 
-                    let _ocp = *ocp;
+                    drop(page);
 
-                    drop(ocp);
-
-                    self.ocp_pubsub.publish_immediate(_ocp);
+                    self.page_pubsub.publish_immediate(_page);
                 }
                 BtnsState::Down => {
-                    let mut ocp = OCP_MUTEX.lock().await;
+                    let selected = self.down_ocp(selected).await;
+                    *page = Page::OCP(selected);
 
-                    if *ocp < 10.0 {
-                        *ocp = 0.0;
-                    } else {
-                        *ocp -= 0.25;
-                    }
+                    let _page = *page;
 
-                    let _ocp = *ocp;
+                    drop(page);
 
-                    drop(ocp);
-
-                    self.ocp_pubsub.publish_immediate(_ocp);
+                    self.page_pubsub.publish_immediate(_page);
                 }
                 BtnsState::UpAndDown => {
                     *page = Page::Setting(SettingItem::OCP);
@@ -431,6 +428,26 @@ impl<'a> Controller<'a> {
                     drop(page);
 
                     self.page_pubsub.publish_immediate(_page);
+
+                    let mut ocp = OCP_MUTEX.lock().await;
+                    *ocp = selected;
+
+                    self.ocp_pubsub.publish_immediate(selected);
+
+                }
+                BtnsState::UpAndDownLong => {
+                    *page = Page::Monitor;
+
+                    let _page = *page;
+
+                    drop(page);
+
+                    self.page_pubsub.publish_immediate(_page);
+
+                    let mut ocp = OCP_MUTEX.lock().await;
+                    *ocp = selected;
+
+                    self.ocp_pubsub.publish_immediate(selected);
                 }
                 BtnsState::UpDbk | BtnsState::DownDbk => {
                     self.switch_direction().await;
@@ -497,6 +514,30 @@ impl<'a> Controller<'a> {
         let index = index.unwrap();
 
         return available[(index + available.len() - 1) % available.len()];
+    }
+
+    async fn up_ocp(&mut self, selected: f64) -> f64 {
+        let index = OCP_ITEMS.iter().position(|&x| selected == x);
+
+        if index.is_none() {
+            return OCP_ITEMS[0];
+        }
+
+        let index = index.unwrap();
+
+        return OCP_ITEMS[(index + 1) % OCP_ITEMS.len()];
+    }
+
+    async fn down_ocp(&mut self, selected: f64) -> f64 {
+        let index = OCP_ITEMS.iter().position(|&x| selected == x);
+
+        if index.is_none() {
+            return OCP_ITEMS[0];
+        }
+
+        let index = index.unwrap();
+
+        return OCP_ITEMS[(index + OCP_ITEMS.len() - 1) % OCP_ITEMS.len()];
     }
 }
 

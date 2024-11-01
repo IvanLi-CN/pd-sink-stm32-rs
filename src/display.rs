@@ -17,7 +17,10 @@ use crate::{
         COLOR_PRIMARY, COLOR_PRIMARY_CONTENT, COLOR_TEXT, COLOR_TEXT_DISABLED, COLOR_VOLTAGE,
         COLOR_WATTAGE, DISPLAY_DIRECTION_PUBSUB, OUTPUT_PUBSUB, PAGE_PUBSUB,
     },
-    types::{Direction, Page, PowerInfo, SettingItem, StatusInfo, SETTING_ITEMS, VOLTAGE_ITEMS},
+    types::{
+        Direction, Page, PowerInfo, SettingItem, StatusInfo, OCP_ITEMS, SETTING_ITEMS,
+        VOLTAGE_ITEMS,
+    },
 };
 
 pub struct Display<'a, SPI, DC, RST>
@@ -255,7 +258,7 @@ where
                 self.update_voltage_layout(selected).await;
             }
             Page::UVP => self.update_monitor_layout().await,
-            Page::OCP => self.update_monitor_layout().await,
+            Page::OCP(selected) => self.update_ocp_layout(selected).await,
             Page::About => {
                 self.update_setting_layout(SettingItem::About).await;
                 self.update_about_layout().await;
@@ -488,6 +491,54 @@ where
                 bg_color,
                 color,
                 text.len() as u16,
+            )
+            .await;
+        }
+    }
+
+    pub async fn update_ocp_layout(&mut self, selected: f64) {
+        let offset = OCP_ITEMS
+            .iter()
+            .enumerate()
+            .find(|(_, ele)| **ele == selected)
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+
+        for i in 0..OCP_ITEMS.len().min(5) {
+            let idx = (offset + i + OCP_ITEMS.len() - 2) % OCP_ITEMS.len();
+            let item = OCP_ITEMS[idx];
+
+            let (color, bg_color) = if item == selected {
+                (COLOR_PRIMARY_CONTENT, COLOR_PRIMARY)
+            } else {
+                (COLOR_TEXT, COLOR_BACKGROUND)
+            };
+
+            let text = self.ryu_buffer.format(item);
+
+            let x = 170;
+            let y = (i as u16) * 38;
+
+            Self::render_status(
+                &mut self.st7789,
+                text,
+                x,
+                y,
+                bg_color,
+                color,
+                text.len() as u16,
+            )
+            .await;
+
+            // Unit
+            Self::render_status(
+                &mut self.st7789,
+                "A",
+                x + (text.len() as u16) * 16 + 6,
+                y,
+                bg_color,
+                color,
+                1,
             )
             .await;
         }
