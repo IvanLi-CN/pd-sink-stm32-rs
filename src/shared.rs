@@ -33,6 +33,7 @@ pub const COLOR_WATTAGE: Rgb565 = WebColors::CSS_FOREST_GREEN;
 pub const COLOR_ERROR: Rgb565 = WebColors::CSS_DARK_RED;
 pub const COLOR_INFO: Rgb565 = WebColors::CSS_STEEL_BLUE;
 pub const COLOR_ON_TEXT: Rgb565 = WebColors::CSS_FOREST_GREEN;
+pub const COLOR_OFF_TEXT: Rgb565 = WebColors::CSS_ORANGE_RED;
 
 pub static DISPLAY: Mutex<
     CriticalSectionRawMutex,

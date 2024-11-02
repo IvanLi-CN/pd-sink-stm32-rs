@@ -2,6 +2,7 @@
 #![no_main]
 
 use button::Button;
+use combined_filter::CombinedFilter;
 use controller::Controller;
 use display::Display;
 use embassy_embedded_hal::shared_bus::{
@@ -24,7 +25,6 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 
 use defmt_rtt as _;
 use embassy_time::{Duration, Ticker};
-use exponential_moving_average::ExponentialMovingAverage;
 use husb238::{Command, Husb238};
 use ina226::{DEFAULT_ADDRESS, INA226};
 use output_controller::OutputController;
@@ -47,6 +47,7 @@ mod font;
 mod output_controller;
 mod shared;
 mod types;
+mod combined_filter;
 
 static SPI_BUS_MUTEX: StaticCell<Mutex<CriticalSectionRawMutex, SpiBus>> = StaticCell::new();
 static HUSB238_I2C_MUTEX: StaticCell<Mutex<CriticalSectionRawMutex, I2c<'_, mode::Async>>> =
@@ -79,13 +80,7 @@ async fn main(spawner: Spawner) {
     let dc_pin = Output::new(p.PA15, Level::Low, Speed::High);
     let rst_pin = Output::new(p.PA12, Level::Low, Speed::High);
 
-    // let cs_pin = ST7789_CS_PIN.init(cs_pin);
-    // let dc_pin = ST7789_DC_PIN.init(dc_pin);
-    // let rst_pin = ST7789_RST_PIN.init(rst_pin);
-
     let spi_dev = SpiDevice::new(spi, cs_pin);
-
-    // let spi_dev = ST7789_SPI_DEV.init(spi_dev);
 
     let st7789: ST7789Display = ST7789::new(st7789::Config::default(), spi_dev, dc_pin, rst_pin);
     let mut _display = Display::new(st7789);
@@ -135,8 +130,8 @@ async fn main(spawner: Spawner) {
         .set_configuration(&ina226::Config {
             mode: ina226::MODE::ShuntBusVoltageContinuous,
             avg: ina226::AVG::_1,
-            vbusct: ina226::VBUSCT::_4156us,
-            vshct: ina226::VSHCT::_4156us,
+            vbusct: ina226::VBUSCT::_1100us,
+            vshct: ina226::VSHCT::_1100us,
         })
         .await
         .unwrap();
@@ -164,8 +159,9 @@ async fn main(spawner: Spawner) {
 
     let mut count = 0u8;
 
-    let mut amps_avg = ExponentialMovingAverage::new(0.1);
-    let mut volts_avg = ExponentialMovingAverage::new(0.1);
+    let mut amps_avg = CombinedFilter::new(0.1);
+    let mut volts_avg = CombinedFilter::new(0.1);
+    let mut watts_avg = CombinedFilter::new(0.1);
 
     loop {
         let mut display = DISPLAY.lock().await;
@@ -180,8 +176,7 @@ async fn main(spawner: Spawner) {
 
         match ina226.bus_voltage_millivolts().await {
             Ok(val) => {
-                volts_avg.update(val / 1000.0);
-                display.update_monitor_volts(volts_avg.get_average()).await;
+                display.update_monitor_volts(volts_avg.update(val / 1000.0)).await;
             }
             Err(_) => {
                 display.update_monitor_volts(99999.99999).await;
@@ -200,10 +195,10 @@ async fn main(spawner: Spawner) {
 
                 if amps > ocp {
                     output_controller.set_output(false).await;
+                    display.update_output(false).await;
                     display.update_monitor_amps(amps).await;
                 } else {
-                    amps_avg.update(amps);
-                    display.update_monitor_amps(amps_avg.get_average()).await;
+                    display.update_monitor_amps(amps_avg.update(amps)).await;
                 }
             }
             Err(_) => {
@@ -213,7 +208,9 @@ async fn main(spawner: Spawner) {
 
         match ina226.power_watts().await {
             Ok(val) => {
-                display.update_monitor_watts(val.unwrap_or(0.0)).await;
+                let watts = val.unwrap_or(0.0);
+
+                display.update_monitor_watts(watts_avg.update(watts)).await;
             }
             Err(_) => {
                 display.update_monitor_watts(99999.99999).await;

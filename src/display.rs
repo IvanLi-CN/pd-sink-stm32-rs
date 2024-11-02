@@ -13,9 +13,7 @@ use crate::{
         GROTESK_24_48_INDEX,
     },
     shared::{
-        AVAILABLE_VOLT_CURR_MUTEX, COLOR_AMPERAGE, COLOR_BACKGROUND, COLOR_BASE, COLOR_ON_TEXT,
-        COLOR_PRIMARY, COLOR_PRIMARY_CONTENT, COLOR_TEXT, COLOR_TEXT_DISABLED, COLOR_VOLTAGE,
-        COLOR_WATTAGE, DISPLAY_DIRECTION_PUBSUB, OUTPUT_PUBSUB, PAGE_PUBSUB,
+        AVAILABLE_VOLT_CURR_MUTEX, COLOR_AMPERAGE, COLOR_BACKGROUND, COLOR_BASE, COLOR_OFF_TEXT, COLOR_ON_TEXT, COLOR_PRIMARY, COLOR_PRIMARY_CONTENT, COLOR_TEXT, COLOR_TEXT_DISABLED, COLOR_VOLTAGE, COLOR_WATTAGE, DISPLAY_DIRECTION_PUBSUB, OUTPUT_PUBSUB, PAGE_PUBSUB
     },
     types::{
         Direction, Page, PowerInfo, SettingItem, StatusInfo, OCP_ITEMS, SETTING_ITEMS,
@@ -161,6 +159,7 @@ where
             return;
         }
 
+        let watts = if watts < 0.0001 { 0.0 } else { watts };
         let curr = self.ryu_buffer.format(watts);
         let prev = self.prev_ryu_buffer.format(self.power_info.watts);
 
@@ -270,7 +269,7 @@ where
             MONITOR_SECONDARY_X2,
             MONITOR_SECONDARY_Y5,
             COLOR_BACKGROUND,
-            if output { COLOR_ON_TEXT } else { COLOR_TEXT },
+            if output { COLOR_ON_TEXT } else { COLOR_OFF_TEXT },
             3,
         )
         .await;
