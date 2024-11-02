@@ -22,12 +22,12 @@ pub const OCP_MAX: f64 = 10.0;
 
 pub const COLOR_PRIMARY: Rgb565 = Rgb565::CSS_DODGER_BLUE;
 pub const COLOR_SECONDARY: Rgb565 = Rgb565::CSS_TURQUOISE;
-pub const COLOR_BACKGROUND: Rgb565 = Rgb565::CSS_WHITE_SMOKE;
+pub const COLOR_BACKGROUND: Rgb565 = Rgb565::CSS_WHITE;
 pub const COLOR_PRIMARY_CONTENT: Rgb565 = Rgb565::CSS_WHITE;
 pub const COLOR_BASE: Rgb565 = WebColors::CSS_DARK_SLATE_GRAY;
 pub const COLOR_TEXT: Rgb565 = WebColors::CSS_DARK_SLATE_GRAY;
 pub const COLOR_TEXT_DISABLED: Rgb565 = WebColors::CSS_DARK_GRAY;
-pub const COLOR_VOLTAGE: Rgb565 = WebColors::CSS_DARK_ORANGE;
+pub const COLOR_VOLTAGE: Rgb565 = WebColors::CSS_GOLDENROD;
 pub const COLOR_AMPERAGE: Rgb565 = WebColors::CSS_ORANGE_RED;
 pub const COLOR_WATTAGE: Rgb565 = WebColors::CSS_FOREST_GREEN;
 pub const COLOR_ERROR: Rgb565 = WebColors::CSS_DARK_RED;
@@ -66,7 +66,7 @@ pub(crate) static PAGE_MUTEX: Mutex<CriticalSectionRawMutex, Page> = Mutex::new(
 pub(crate) static BACKLIGHT_MUTEX: Mutex<CriticalSectionRawMutex, u16> = Mutex::new(255);
 pub(crate) static DISPLAY_DIRECTION_MUTEX: Mutex<CriticalSectionRawMutex, Direction> =
     Mutex::new(Direction::Normal);
-pub(crate) static OCP_MUTEX: Mutex<CriticalSectionRawMutex, f64> = Mutex::new(0.0);
+pub(crate) static OCP_MUTEX: Mutex<CriticalSectionRawMutex, f64> = Mutex::new(3.0);
 pub(crate) static UVP_MUTEX: Mutex<CriticalSectionRawMutex, f64> = Mutex::new(0.0);
 pub(crate) static PDO_MUTEX: Mutex<CriticalSectionRawMutex, SrcPdo> = Mutex::new(SrcPdo::_5v);
 

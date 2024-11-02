@@ -24,9 +24,10 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
 
 use defmt_rtt as _;
 use embassy_time::{Duration, Ticker};
+use exponential_moving_average::ExponentialMovingAverage;
 use husb238::{Command, Husb238};
 use ina226::{DEFAULT_ADDRESS, INA226};
-use output_controler::OutputController;
+use output_controller::OutputController;
 // global logger
 use panic_probe as _;
 
@@ -41,8 +42,9 @@ use types::{AvailableVoltCurr, ST7789Display, SpiBus};
 mod button;
 mod controller;
 mod display;
+mod exponential_moving_average;
 mod font;
-mod output_controler;
+mod output_controller;
 mod shared;
 mod types;
 
@@ -132,9 +134,9 @@ async fn main(spawner: Spawner) {
     ina226
         .set_configuration(&ina226::Config {
             mode: ina226::MODE::ShuntBusVoltageContinuous,
-            avg: ina226::AVG::_128,
-            vbusct: ina226::VBUSCT::_8244us,
-            vshct: ina226::VSHCT::_8244us,
+            avg: ina226::AVG::_1,
+            vbusct: ina226::VBUSCT::_4156us,
+            vshct: ina226::VSHCT::_4156us,
         })
         .await
         .unwrap();
@@ -162,6 +164,9 @@ async fn main(spawner: Spawner) {
 
     let mut count = 0u8;
 
+    let mut amps_avg = ExponentialMovingAverage::new(0.1);
+    let mut volts_avg = ExponentialMovingAverage::new(0.1);
+
     loop {
         let mut display = DISPLAY.lock().await;
 
@@ -175,23 +180,30 @@ async fn main(spawner: Spawner) {
 
         match ina226.bus_voltage_millivolts().await {
             Ok(val) => {
-                display.update_monitor_volts(val / 1000.0).await;
+                volts_avg.update(val / 1000.0);
+                display.update_monitor_volts(volts_avg.get_average()).await;
             }
             Err(_) => {
                 display.update_monitor_volts(99999.99999).await;
             }
         }
 
+        let ocp_guard = OCP_MUTEX.lock().await;
+        let ocp = *ocp_guard;
+
+        display.update_ocp_amps(ocp).await;
+
+
         match ina226.current_amps().await {
             Ok(val) => {
-                let ocp = OCP_MUTEX.lock().await;
-                let amps = val.unwrap_or(0.0);
+                let amps = val.unwrap_or(0.0).max(0.0);
 
-                if amps > *ocp {
+                if amps > ocp {
                     output_controller.set_output(false).await;
                     display.update_monitor_amps(amps).await;
                 } else {
-                    display.update_monitor_amps(amps).await;
+                    amps_avg.update(amps);
+                    display.update_monitor_amps(amps_avg.get_average()).await;
                 }
             }
             Err(_) => {

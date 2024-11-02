@@ -26,6 +26,7 @@ impl Default for PowerInfo {
 pub struct StatusInfo {
     pub target_volts: f64,
     pub limit_amps: f64,
+    pub ocp_amps: f64,
     pub output: bool,
 }
 
@@ -34,6 +35,7 @@ impl Default for StatusInfo {
         Self {
             target_volts: 0.0,
             limit_amps: 0.0,
+            ocp_amps: 0.0,
             output: false,
         }
     }

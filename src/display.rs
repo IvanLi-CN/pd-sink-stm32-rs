@@ -23,6 +23,24 @@ use crate::{
     },
 };
 
+const MONITOR_PRIMARY_X: u16 = 14;
+const MONITOR_PRIMARY_Y1: u16 = 6;
+const MONITOR_PRIMARY_Y2: u16 = 62;
+const MONITOR_PRIMARY_Y3: u16 = 118;
+const MONITOR_PRIMARY_UINT_X: u16 = 138;
+const MONITOR_PRIMARY_UINT_Y1: u16 = 30;
+const MONITOR_PRIMARY_UINT_Y2: u16 = 86;
+const MONITOR_PRIMARY_UINT_Y3: u16 = 142;
+const MONITOR_SECONDARY_X1: u16 = 164;
+const MONITOR_SECONDARY_X2: u16 = 222;
+const MONITOR_SECONDARY_X3: u16 = 286;
+const MONITOR_SECONDARY_Y1: u16 = 4;
+const MONITOR_SECONDARY_Y2: u16 = 32;
+const MONITOR_SECONDARY_Y3: u16 = 60;
+const MONITOR_SECONDARY_Y4: u16 = 88;
+const MONITOR_SECONDARY_Y5: u16 = 116;
+const MONITOR_SECONDARY_Y6: u16 = 144;
+
 pub struct Display<'a, SPI, DC, RST>
 where
     SPI: SpiDevice,
@@ -105,7 +123,7 @@ where
             &mut self.st7789,
             curr,
             prev,
-            10,
+            MONITOR_PRIMARY_Y1,
             COLOR_BACKGROUND,
             COLOR_VOLTAGE,
             self.force_render,
@@ -120,6 +138,7 @@ where
             return;
         }
 
+        let amps = if amps < 0.0001 { 0.0 } else { amps };
         let curr = self.ryu_buffer.format(amps);
         let prev = self.prev_ryu_buffer.format(self.power_info.amps);
 
@@ -127,7 +146,7 @@ where
             &mut self.st7789,
             curr,
             prev,
-            60,
+            MONITOR_PRIMARY_Y2,
             COLOR_BACKGROUND,
             COLOR_AMPERAGE,
             self.force_render,
@@ -149,7 +168,7 @@ where
             &mut self.st7789,
             curr,
             prev,
-            110,
+            MONITOR_PRIMARY_Y3,
             COLOR_BACKGROUND,
             COLOR_WATTAGE,
             self.force_render,
@@ -175,8 +194,8 @@ where
         Self::render_status(
             &mut self.st7789,
             curr,
-            210,
-            35,
+            MONITOR_SECONDARY_X2,
+            MONITOR_SECONDARY_Y1,
             COLOR_BACKGROUND,
             COLOR_TEXT,
             4,
@@ -200,8 +219,33 @@ where
         Self::render_status(
             &mut self.st7789,
             curr,
-            210,
-            85,
+            MONITOR_SECONDARY_X2,
+            MONITOR_SECONDARY_Y2,
+            COLOR_BACKGROUND,
+            COLOR_TEXT,
+            4,
+        )
+        .await;
+    }
+
+    pub async fn update_ocp_amps(&mut self, amps: f64) {
+        if !matches!(self.page, Page::Monitor) {
+            return;
+        }
+
+        if self.status_info.ocp_amps == amps && !self.force_render {
+            return;
+        }
+
+        self.status_info.ocp_amps = amps;
+
+        let curr: &str = self.ryu_buffer.format(self.status_info.ocp_amps);
+
+        Self::render_status(
+            &mut self.st7789,
+            curr,
+            MONITOR_SECONDARY_X2,
+            MONITOR_SECONDARY_Y3,
             COLOR_BACKGROUND,
             COLOR_TEXT,
             4,
@@ -223,8 +267,8 @@ where
         Self::render_status(
             &mut self.st7789,
             if output { "ON " } else { "OFF" },
-            210,
-            135,
+            MONITOR_SECONDARY_X2,
+            MONITOR_SECONDARY_Y5,
             COLOR_BACKGROUND,
             if output { COLOR_ON_TEXT } else { COLOR_TEXT },
             3,
@@ -248,6 +292,7 @@ where
                 self.update_target_volts(self.status_info.target_volts)
                     .await;
                 self.update_limit_amps(self.status_info.limit_amps).await;
+                self.update_ocp_amps(self.status_info.ocp_amps).await;
                 self.update_output(self.output).await;
 
                 self.force_render = false;
@@ -258,7 +303,10 @@ where
                 self.update_voltage_layout(selected).await;
             }
             Page::UVP => self.update_monitor_layout().await,
-            Page::OCP(selected) => self.update_ocp_layout(selected).await,
+            Page::OCP(selected) => {
+                self.update_setting_layout(SettingItem::Voltage).await;
+                self.update_ocp_layout(selected).await;
+            }
             Page::About => {
                 self.update_setting_layout(SettingItem::About).await;
                 self.update_about_layout().await;
@@ -270,8 +318,8 @@ where
         Self::render_status(
             &mut self.st7789,
             "V",
-            180,
-            34,
+            MONITOR_PRIMARY_UINT_X,
+            MONITOR_PRIMARY_UINT_Y1,
             COLOR_BACKGROUND,
             COLOR_VOLTAGE,
             1,
@@ -281,8 +329,8 @@ where
         Self::render_status(
             &mut self.st7789,
             "A",
-            180,
-            82,
+            MONITOR_PRIMARY_UINT_X,
+            MONITOR_PRIMARY_UINT_Y2,
             COLOR_BACKGROUND,
             COLOR_AMPERAGE,
             1,
@@ -292,8 +340,8 @@ where
         Self::render_status(
             &mut self.st7789,
             "W",
-            180,
-            130,
+            MONITOR_PRIMARY_UINT_X,
+            MONITOR_PRIMARY_UINT_Y3,
             COLOR_BACKGROUND,
             COLOR_WATTAGE,
             1,
@@ -303,8 +351,8 @@ where
         Self::render_status(
             &mut self.st7789,
             "PDO",
-            210,
-            10,
+            MONITOR_SECONDARY_X1,
+            MONITOR_SECONDARY_Y1,
             COLOR_BACKGROUND,
             COLOR_BASE,
             3,
@@ -313,9 +361,9 @@ where
 
         Self::render_status(
             &mut self.st7789,
-            "Max",
-            210,
-            60,
+            "OCP",
+            MONITOR_SECONDARY_X1,
+            MONITOR_SECONDARY_Y3,
             COLOR_BACKGROUND,
             COLOR_BASE,
             3,
@@ -325,11 +373,44 @@ where
         Self::render_status(
             &mut self.st7789,
             "Out",
-            210,
-            110,
+            MONITOR_SECONDARY_X1,
+            MONITOR_SECONDARY_Y5,
             COLOR_BACKGROUND,
             COLOR_BASE,
             3,
+        )
+        .await;
+
+        Self::render_status(
+            &mut self.st7789,
+            "V",
+            MONITOR_SECONDARY_X3,
+            MONITOR_SECONDARY_Y1,
+            COLOR_BACKGROUND,
+            COLOR_BASE,
+            1,
+        )
+        .await;
+
+        Self::render_status(
+            &mut self.st7789,
+            "A",
+            MONITOR_SECONDARY_X3,
+            MONITOR_SECONDARY_Y2,
+            COLOR_BACKGROUND,
+            COLOR_BASE,
+            1,
+        )
+        .await;
+
+        Self::render_status(
+            &mut self.st7789,
+            "A",
+            MONITOR_SECONDARY_X3,
+            MONITOR_SECONDARY_Y3,
+            COLOR_BACKGROUND,
+            COLOR_BASE,
+            1,
         )
         .await;
     }
@@ -581,7 +662,7 @@ where
         let mut chars = curr.chars();
         let mut chars_prev = prev.chars();
 
-        for idx in 0..7 {
+        for idx in 0..5 {
             let char = chars.next();
             if char == chars_prev.next() {
                 if !force_render {
@@ -596,7 +677,7 @@ where
 
             st7789
                 .write_area(
-                    10 + idx * 24,
+                    MONITOR_PRIMARY_X + idx * 24,
                     y,
                     24,
                     GROTESK_24_48[get_index_by_char(GROTESK_24_48_INDEX, char)],
